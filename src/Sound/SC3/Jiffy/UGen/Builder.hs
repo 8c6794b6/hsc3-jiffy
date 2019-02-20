@@ -32,7 +32,8 @@ import qualified Data.HashTable.ST.Basic as HT
 -- hsc3
 import Sound.SC3
   ( Audible(..), Binary(..), BinaryOp(..), Rate(..), K_Type(..)
-  , Output, Sample, Special(..), UGenId(..), toUId )
+  , Output, Sample, Special(..), UGenId(..), Unary(..), Envelope(..)
+  , envelope_sc3_array, toUId )
 import Sound.SC3.Server.Graphdef (Graphdef(..))
 import Sound.SC3.Server.Graphdef.Graph (graph_to_graphdef)
 import Sound.SC3.UGen.Graph
@@ -313,15 +314,19 @@ instance Num UGen where
   {-# INLINE (*) #-}
   (-) = mk_binary_op_ugen Sub
   {-# INLINE (-) #-}
-  abs = error "G: abs"
-  signum = error "G: signum"
-  negate = error "G: negate"
+  abs = mk_unary_op_ugen Abs
+  {-# INLINE abs #-}
+  signum = mk_unary_op_ugen Sign
+  {-# INLINE signum #-}
+  negate = mk_unary_op_ugen Neg
+  {-# INLINE negate #-}
 
 instance Fractional UGen where
   recip = error "G: recip"
-  (/) = error "G: /"
+  (/) = mk_binary_op_ugen FDiv
+  {-# INLINE (/) #-}
   fromRational = constant . fromRational
-  {-# INLINABLE fromRational #-}
+  {-# INLINE fromRational #-}
 
 instance Eq UGen where
   _ == _ = error "G: =="
@@ -334,12 +339,16 @@ instance Enum UGen where
   {-# INLINE toEnum #-}
   fromEnum _ = error "G: fromEnum"
   enumFrom = iterate (+ 1)
+  {-# INLINE enumFrom #-}
   enumFromThen n m = iterate (+ (m - n)) n
+  {-# INLINE enumFromThen #-}
   enumFromTo n m = takeWhile (<= m+1/2) (enumFrom n)
+  {-# INLINE enumFromTo #-}
   enumFromThenTo n n' m =
     let p | n' >= n   = (>=)
           | otherwise = (<=)
     in  takeWhile (p (m + (n'-n)/2)) (enumFromThen n n')
+  {-# INLINE enumFromThenTo #-}
 
 instance Real UGen where
   toRational = error "G: toRational"
@@ -588,7 +597,7 @@ mk_filter_ugen :: Int -> (forall s . DAG s -> ST s UGenId)
 mk_filter_ugen n_output u_fn special name input_ugens =
   mkUGen n_output u_fn special name r_fn i_fn input_ugens
   where
-    r_fn = maximum_rate [0.. (length input_ugens - 1)]
+    r_fn = maximum_rate [0..(length input_ugens - 1)]
     i_fn = simple_inputs
 {-# INLINABLE mk_filter_ugen #-}
 
@@ -600,11 +609,22 @@ mk_filter_id_ugen :: String -> [UGen] -> UGen
 mk_filter_id_ugen = mk_filter_ugen 1 hashUId spec0
 {-# INLINABLE mk_filter_id_ugen #-}
 
+mk_unary_op_ugen :: Unary -> UGen -> UGen
+mk_unary_op_ugen op a = mkUGen 1 noId special name r_fn i_fn [a]
+  where
+    special = Special (fromEnum op)
+    name = "UnaryOpUGen"
+    r_fn = get_rate_at 0
+    i_fn = simple_inputs
+{-# INLINABLE mk_unary_op_ugen #-}
+
 mk_binary_op_ugen :: Binary -> UGen -> UGen -> UGen
-mk_binary_op_ugen op a b = mk_filter_ugen 1 noId special name [a,b]
+mk_binary_op_ugen op a b = mkUGen 1 noId special name r_fn i_fn [a,b]
   where
     special = Special (fromEnum op)
     name = "BinaryOpUGen"
+    r_fn = maximum_rate [0,1]
+    i_fn = simple_inputs
 {-# INLINABLE mk_binary_op_ugen #-}
 
 noId :: DAG s -> ST s UGenId
@@ -623,6 +643,14 @@ const_rate :: Rate -> a -> b -> ST s Rate
 const_rate r _ _ = return r
 {-# INLINEABLE const_rate #-}
 
+-- | Get rate from index of 'NodeId' argument.
+get_rate_at :: Int -> [NodeId] -> DAG s -> ST s Rate
+get_rate_at i nids dag = do
+  n <- lookup_g_node (nids !! i) dag
+  return (g_node_rate n)
+{-# INLINABLE get_rate_at #-}
+
+-- | Get maximum rate from selected node ids by input argument indices.
 maximum_rate :: [Int] -> [NodeId] -> DAG s -> ST s Rate
 maximum_rate is nids0 dag = do
   let nids1 = map (nids0 !!) is
@@ -644,11 +672,15 @@ stdmce_inputs ugens = do
   return (f mce_nids)
 {-# INLINABLE stdmce_inputs #-}
 
-
 
 --
--- Composite UGen functions
+-- Composite and auxiliary UGen related functions
 --
+
+share :: Applicative m => G a -> G (m a)
+share g = G (fmap pure (unG g))
+{-# INLINABLE share #-}
+{-# SPECIALIZE share :: UGen -> G UGen #-}
 
 mceChannel :: Int -> UGen -> UGen
 mceChannel n g =
@@ -674,11 +706,6 @@ dup :: Int -> UGen -> UGen
 dup n = mce . (replicate n)
 {-# INLINABLE dup #-}
 
-share :: Applicative m => G a -> G (m a)
-share g = G (fmap pure (unG g))
-{-# INLINABLE share #-}
-{-# SPECIALIZE share :: UGen -> G UGen #-}
-
 mix :: UGen -> UGen
 mix g = do
   mce_nid <- g
@@ -692,6 +719,13 @@ mix g = do
       in  f nids
     MCEU _    -> return mce_nid
 {-# INLINABLE mix #-}
+
+envelope_to_ugen :: Envelope UGen -> UGen
+envelope_to_ugen e =
+  case envelope_sc3_array e of
+    Just as -> mce as
+    Nothing -> error "envelope_to_ugen: bad Envelope"
+{-# INLINABLE envelope_to_ugen #-}
 
 
 --

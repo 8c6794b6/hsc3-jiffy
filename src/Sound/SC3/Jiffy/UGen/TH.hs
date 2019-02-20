@@ -11,7 +11,9 @@ module Sound.SC3.Jiffy.UGen.TH where
 import Language.Haskell.TH
 
 -- hsc3
-import Sound.SC3 (Rate)
+import Sound.SC3
+  ( DoneAction, Envelope, Interpolation, Loop, Rate, Warp
+  , from_done_action, from_interpolation, from_loop, from_warp )
 
 -- hsc3-db
 import Sound.SC3.UGen.DB (ugenDB)
@@ -31,13 +33,11 @@ ugenDecsQ = sequence (concatMap defineUGen ugenDB)
 defineUGen :: U -> [DecQ]
 defineUGen u =
   let name = mkName (ugen_hs_name u)
-      cls = [clause pats1 (normalB bodyE) []]
       rate_name = mkName "rate"
       numchan_name = mkName "numChannels"
-      (pats1, tyargs1)
-        | ugen_nc_input u
-        = (varP numchan_name : pats0, [t|Int|] : tyargs0)
-        | otherwise = (pats0, tyargs0)
+      scnameE = stringE (ugen_name u)
+      input_names = map mkName (u_renamed_inputs u)
+      input_pats = map varP input_names
       (pats0, rateE, tyargs0)
         | Just is <- ugen_filter u
         = (input_pats, [e|maximum_rate is|], input_tys)
@@ -49,10 +49,20 @@ defineUGen u =
               r = [e|const_rate $(varE rate_name)|]
               t = [t|Rate|] : input_tys
           in  (p, r, t)
-      input_pats = map varP input_names
-      input_exps = map varE input_names
-      input_names = map mkName (u_renamed_inputs u)
-      scnameE = stringE (ugen_name u)
+      (pats1, tyargs1)
+        | ugen_nc_input u
+        = (varP numchan_name : pats0, [t|Int|] : tyargs0)
+        | otherwise = (pats0, tyargs0)
+      as_enum_typ iv (i,_) =
+        maybe ugenT enum_type_of (lookup i iv)
+      as_enum_exp iv (i,n) =
+        maybe (varE n) (enum_exp_of n) (lookup i iv)
+      (input_exps, input_tys)
+        | Just iv <- ugen_enumerations u
+        = let ixs = zip [0..] input_names
+          in  (map (as_enum_exp iv) ixs, map (as_enum_typ iv) ixs)
+        | otherwise
+        = (map varE input_names, map (const ugenT) input_names)
       noutE
         | Just n <- ugen_outputs u = [e|n|]
         | ugen_nc_input u = varE numchan_name
@@ -64,15 +74,36 @@ defineUGen u =
       inputE = if ugen_std_mce u > 0
                   then [e|stdmce_inputs|]
                   else [e|simple_inputs|]
-      --
+      ugenT = [t|UGen|]
       bodyE = [e|mkUGen $(noutE) $(ugenidE) spec0 $(scnameE)
                         $(rateE) $(inputE) $(listE input_exps)|]
       --
       typ = foldr (\a b -> appT (appT arrowT a) b) ugenT tyargs1
-      input_tys = map (const ugenT) input_names
-      ugenT = [t|UGen|]
+      cls = [clause pats1 (normalB bodyE) []]
       --
   in  [sigD name typ, funD name cls]
+
+enum_exp_of :: Name -> String -> ExpQ
+enum_exp_of var_name fn =
+  case fn of
+    "DoneAction"    -> [e|from_done_action $(var)|]
+    "Envelope"      -> [e|envelope_to_ugen $(var)|]
+    "Interpolation" -> [e|from_interpolation $(var)|]
+    "Loop"          -> [e|from_loop $(var)|]
+    "Warp"          -> [e|from_warp $(var)|]
+    _               -> [e|error $(stringE (show var_name ++ fn))|]
+  where
+    var = varE var_name
+
+enum_type_of :: String -> TypeQ
+enum_type_of name =
+  case name of
+    "DoneAction"    -> [t|DoneAction UGen|]
+    "Envelope"      -> [t|Envelope UGen|]
+    "Loop"          -> [t|Loop UGen|]
+    "Interpolation" -> [t|Interpolation UGen|]
+    "Warp"          -> [t|Warp UGen|]
+    _               -> varT (mkName "unknown_enum_type")
 
 --
 

@@ -3,7 +3,7 @@ module Main where
 import Test.Hspec
 
 -- hsc3
-import Sound.SC3 (Rate(..))
+import Sound.SC3 (Rate(..), Loop(..), DoneAction(..), Warp(..))
 import Sound.SC3.Server.Graphdef.Graph (graph_to_graphdef)
 import Sound.SC3.UGen.Graph (ugen_to_graph)
 import qualified Sound.SC3 as S
@@ -53,6 +53,15 @@ mrg_graph =
           in  S.mrg [S.out 0 s1, S.out 1 s1]
   in  same_graphdef "mrg" j h
 
+enum_graph :: Spec
+enum_graph = do
+  let j0 = playBuf 2 AR 0 0 0 0 NoLoop DoNothing
+      h0 = S.playBuf 2 AR 0 0 0 0 NoLoop DoNothing
+      j1 = mouseX KR 0 0 Linear 0
+      h1 = S.mouseX KR 0 0 Linear 0
+  same_graphdef "enum_loop_doneaction" j0 h0
+  same_graphdef "enum_warp" j1 h1
+
 main :: IO ()
 main =
   hspec
@@ -61,4 +70,5 @@ main =
         (do simple_graph
             mix_mce_graph
             nondet_graph
-            mrg_graph))
+            mrg_graph
+            enum_graph))
