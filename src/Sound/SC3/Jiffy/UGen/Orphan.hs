@@ -8,7 +8,6 @@ import Data.Hashable (Hashable(..), hashUsing)
 
 -- hsc3
 import Sound.SC3 (K_Type(..), Rate(..), Special(..), UGenId(..))
-import Sound.SC3.UGen.Graph (From_Port(..))
 
 instance Ord Special where
   compare (Special a) (Special b) = compare a b
@@ -25,29 +24,6 @@ instance Hashable K_Type where
                         K_KR -> 1
                         K_TR -> 2
                         K_AR -> 3 :: Int)
-  {-# INLINE hashWithSalt #-}
-
-instance Ord From_Port where
-  compare (From_Port_C n1) (From_Port_C n2) =
-    compare n1 n2
-  compare (From_Port_C {}) (From_Port_K {}) = LT
-  compare (From_Port_C {}) (From_Port_U {}) = LT
-  compare (From_Port_K {}) (From_Port_C {}) = GT
-  compare (From_Port_K n1 k1) (From_Port_K n2 k2) =
-    compare n1 n2 <> compare k1 k2
-  compare (From_Port_K {}) (From_Port_U {}) = LT
-  compare (From_Port_U {}) (From_Port_C {}) = GT
-  compare (From_Port_U {}) (From_Port_K {}) = GT
-  compare (From_Port_U n1 i1) (From_Port_U n2 i2) =
-    compare n1 n2 <> compare i1 i2
-  {-# INLINE compare #-}
-
-instance Hashable From_Port where
-  hashWithSalt s fp =
-    s `hashWithSalt` case fp of
-      From_Port_C n -> n
-      From_Port_K n t -> n `hashWithSalt` t
-      From_Port_U n i -> n `hashWithSalt` i
   {-# INLINE hashWithSalt #-}
 
 instance Ord UGenId where

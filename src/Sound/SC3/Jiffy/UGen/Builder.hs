@@ -152,22 +152,23 @@ insert_at v k (BiMap vt kt) = HC.insert vt v k >> HC.insert kt k v
 
 -- | Data type to represent UGen node in a 'DAG' graph. This data is
 -- intended to be converted to 'U_Node' with key values from current
--- graph used for building synthdef.
+-- graph used for building synthdef. All fields in all constructors are
+-- strict, and some of them are unpacked.
 data G_Node
-  = G_Node_C { g_node_c_value :: Sample }
+  = G_Node_C { g_node_c_value :: {-# UNPACK #-} !Sample }
   -- ^ Constant node.
-  | G_Node_K { g_node_k_rate :: Rate
-             , g_node_k_index :: Maybe Int
-             , g_node_k_name :: String
-             , g_node_k_default :: Sample
-             , g_node_k_type :: K_Type }
+  | G_Node_K { g_node_k_rate :: !Rate
+             , g_node_k_index :: !(Maybe Int)
+             , g_node_k_name :: !String
+             , g_node_k_default :: {-# UNPACK #-} !Sample
+             , g_node_k_type :: !K_Type }
   -- ^ Control node.
-  | G_Node_U { g_node_u_rate :: Rate
-             , g_node_u_name :: String
-             , g_node_u_inputs :: [From_Port]
-             , g_node_u_outputs :: [Output]
-             , g_node_u_special :: Special
-             , g_node_u_ugenid :: UGenId }
+  | G_Node_U { g_node_u_rate :: !Rate
+             , g_node_u_name :: !String
+             , g_node_u_inputs :: ![NodeId]
+             , g_node_u_outputs :: ![Output]
+             , g_node_u_special :: {-# UNPACK #-} !Special
+             , g_node_u_ugenid :: !UGenId }
   -- ^ UGen node.
   deriving (Eq, Ord, Show)
 
@@ -209,6 +210,15 @@ data NodeId
   -- ^ Proxy node, which is a UGen node with optional 'Int' value to
   -- keep track of output index for multi-channeled node.
   deriving (Eq, Ord, Show)
+
+instance Hashable NodeId where
+  hashWithSalt s n =
+    s `hashWithSalt` case n of
+                       NodeId_C k -> k
+                       NodeId_K k t -> k `hashWithSalt` t
+                       NodeId_U k -> k
+                       NodeId_P k p -> k `hashWithSalt` p
+  {-# INLINE hashWithSalt #-}
 
 
 --
@@ -385,14 +395,14 @@ lookup_g_node nid dag =
     NodeId_P k _ -> lookup_val k (umap dag)
 {-# INLINABLE lookup_g_node #-}
 
-get_from_port :: NodeId -> From_Port
-get_from_port nid =
+nid_to_port :: NodeId -> From_Port
+nid_to_port nid =
   case nid of
     NodeId_C k -> From_Port_C k
     NodeId_K k t -> From_Port_K k t
     NodeId_U k -> From_Port_U k Nothing
     NodeId_P k p -> From_Port_U k (Just p)
-{-# INLINABLE get_from_port #-}
+{-# INLINABLE nid_to_port #-}
 
 g_node_rate :: G_Node -> Rate
 g_node_rate n =
@@ -466,7 +476,7 @@ gnode_to_unode nid node =
       U_Node_U {u_node_id=nid
                ,u_node_u_rate=g_node_u_rate
                ,u_node_u_name=g_node_u_name
-               ,u_node_u_inputs=g_node_u_inputs
+               ,u_node_u_inputs=map nid_to_port g_node_u_inputs
                ,u_node_u_outputs=g_node_u_outputs
                ,u_node_u_special=g_node_u_special
                ,u_node_u_ugenid=g_node_u_ugenid}
@@ -544,12 +554,11 @@ mkUGen :: Int
        -- ^ Input arguments.
        -> UGen
 mkUGen n_output uid_fn special name rate_fn input_fn input_ugens =
-  G (do let f input_nids = do
+  G (do let f inputs = do
               dag <- ask
-              rate <- lift (rate_fn input_nids dag)
+              rate <- lift (rate_fn inputs dag)
               uid <- lift (uid_fn dag)
-              let inputs = map get_from_port input_nids
-                  outputs = replicate n_output rate
+              let outputs = replicate n_output rate
               hashconsU (G_Node_U {g_node_u_rate=rate
                                   ,g_node_u_name=name
                                   ,g_node_u_inputs=inputs
