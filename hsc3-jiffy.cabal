@@ -1,0 +1,65 @@
+name:                hsc3-jiffy
+version:             0.1.0.0
+synopsis:            Fast synthdef builder with hsc3
+description:         Fast synthdef builder with hsc3
+homepage:            https://github.com/8c6794b6/hs3-jiffy#readme
+license:             BSD3
+license-file:        LICENSE
+author:              8c6794b6
+maintainer:          8c6794b6@gmail.com
+copyright:           (c) 2019, 8c6794b6
+category:            Sound
+build-type:          Simple
+extra-source-files:  README.md
+cabal-version:       >= 1.10
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     Sound.SC3.Jiffy.UGen.Builder
+                       Sound.SC3.Jiffy.UGen.DB
+  other-modules:       Sound.SC3.Jiffy.UGen.TH
+                       Sound.SC3.Jiffy.UGen.Orphan
+  build-depends:       base >= 4.12 && < 5
+                     , hashable
+                     , hashtables
+                     , hsc3
+                     , hsc3-db
+                     , template-haskell
+                     , transformers
+  default-language:    Haskell2010
+  ghc-options:       -Wall
+
+executable dump-graph
+  hs-source-dirs:      exec
+  main-is:             dump-graph.hs
+  ghc-options:         -Wall -threaded -rtsopts
+  build-depends:       base >= 4.10 && < 5
+                     , hsc3
+                     , hsc3-jiffy
+  default-language:    Haskell2010
+
+benchmark bench-graphs
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      exec
+  main-is:             bench-graphs.hs
+  ghc-options:         -Wall -threaded -rtsopts
+  build-depends:       base >= 4.10 && < 5
+                     , criterion
+                     , hsc3
+                     , hsc3-jiffy
+  default-language:    Haskell2010
+
+test-suite hsc3-jiffy-test
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             Main.hs
+  build-depends:       base >= 4.10 && < 5
+                     , hspec
+                     , hsc3
+                     , hsc3-jiffy
+  ghc-options:         -Wall -threaded -rtsopts
+  default-language:    Haskell2010
+
+source-repository head
+  type:     git
+  location: https://github.com/8c6794b6/hsc3-jiffy
