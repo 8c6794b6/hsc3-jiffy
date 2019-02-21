@@ -40,7 +40,10 @@ defineUGen u =
       input_pats = map varP input_names
       (pats0, rateE, tyargs0)
         | Just is <- ugen_filter u
-        = (input_pats, [e|maximum_rate is|], input_tys)
+        = let r = case is of
+                    [i] -> [e|get_rate_at i|]
+                    _   -> [e|maximum_rate is|]
+          in  (input_pats, r, input_tys)
         | Just r <- ugen_fixed_rate u
         = let r' = fromEnum r
           in  (input_pats, [e|const_rate (toEnum r')|], input_tys)
