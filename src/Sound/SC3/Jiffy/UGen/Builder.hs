@@ -16,8 +16,8 @@
 module Sound.SC3.Jiffy.UGen.Builder where
 
 -- base
+import Control.Monad (foldM)
 import Control.Monad.ST (ST, runST)
-import Data.Foldable (maximumBy)
 import Data.Function (on)
 import Data.List (intercalate, sortBy, transpose)
 import Data.STRef (STRef, newSTRef, readSTRef, writeSTRef)
@@ -157,21 +157,25 @@ insert_at v k (BiMap vt kt) = HC.insert vt v k >> HC.insert kt k v
 -- strict, and some of them are unpacked.
 data G_Node
   = G_Node_C { g_node_c_value :: {-# UNPACK #-} !Sample }
-  -- ^ Constant node.
+  -- ^ Constant node, for 'U_Node_C'.
   | G_Node_K { g_node_k_rate :: !Rate
              , g_node_k_index :: !(Maybe Int)
              , g_node_k_name :: !String
              , g_node_k_default :: {-# UNPACK #-} !Sample
              , g_node_k_type :: !K_Type }
-  -- ^ Control node.
+  -- ^ Control node, for 'U_Node_K'.
   | G_Node_U { g_node_u_rate :: !Rate
              , g_node_u_name :: !String
              , g_node_u_inputs :: ![NodeId]
              , g_node_u_outputs :: ![Output]
              , g_node_u_special :: {-# UNPACK #-} !Special
              , g_node_u_ugenid :: !UGenId }
-  -- ^ UGen node.
-  deriving (Eq, Ord, Show)
+  -- ^ UGen node, for 'U_Node_U'.
+  --
+  -- Note that there is no constructor for proxy node because proxy
+  -- nodes are not stored in synthdef graph. Instead, output proxies are
+  -- expressed with 'NodeId' data type.
+  deriving (Eq, Show)
 
 instance Hashable G_Node where
   hashWithSalt s n =
@@ -241,14 +245,14 @@ instance Hashable NodeId where
 -- | Recursive data type for multi channel expansion.
 data MCE a
   = MCEU !a
-  | MCEV [MCE a]
+  | MCEV ![MCE a]
   deriving (Eq, Ord, Show)
 
 instance Functor MCE where
   fmap f m =
     case m of
       MCEU x  -> MCEU (f x)
-      MCEV xs -> MCEV (map (fmap f) xs)
+      MCEV xs -> MCEV (fmap (fmap f) xs)
   {-# INLINE fmap #-}
 
 instance Applicative MCE where
@@ -273,7 +277,8 @@ mce_extend :: Int -> MCE a -> MCE a
 mce_extend n m =
   case m of
     MCEU _  -> MCEV (replicate n m)
-    MCEV xs -> MCEV (take n (cycle xs))
+    MCEV xs | length xs == n -> m
+            | otherwise      -> MCEV (take n (cycle xs))
 {-# INLINABLE mce_extend #-}
 
 mce_degree :: MCE a -> Int
@@ -529,20 +534,22 @@ normalize :: Int
           -> [MCE NodeId]
           -- ^ Multi-channel input node ids.
           -> ReaderT (DAG s) (ST s) (MCE NodeId)
-normalize n_outputs f inputs0 =
-  if any is_mce_vector inputs0
-     then do
-       let n = maximum (map mce_degree inputs0)
-           inputs1 = transpose (map (mce_list . mce_extend n) inputs0)
-       nids <- mapM (normalize n_outputs f) inputs1
-       return (MCEV nids)
-     else do
-       nid <- f (concatMap mce_elem inputs0)
-       if n_outputs > 1
-          then let mk_nodeid_p = MCEU . NodeId_P (nid_value nid)
-                   nids = map mk_nodeid_p [0..(n_outputs-1)]
-               in  return (MCEV nids)
-          else return (MCEU nid)
+normalize n_outputs f inputs = go inputs
+  where
+    go inputs0 =
+      if any is_mce_vector inputs0
+         then do
+           let n = maximum (map mce_degree inputs0)
+               inputs1 = map (mce_list . mce_extend n) inputs0
+           fmap MCEV (mapM go (transpose inputs1))
+         else do
+           nid <- f (concatMap mce_elem inputs0)
+           if n_outputs > 1
+              then let mk_nodeid_p = MCEU . NodeId_P (nid_value nid)
+                       nids = map mk_nodeid_p [0..(n_outputs-1)]
+                   in  return (MCEV nids)
+              else return (MCEU nid)
+    {-# INLINE go #-}
 {-# INLINABLE normalize #-}
 
 -- | Generalized 'UGen' constructor, for defining binding functions for
@@ -652,11 +659,11 @@ get_rate_at i nids dag = do
 
 -- | Get maximum rate from selected node ids by input argument indices.
 maximum_rate :: [Int] -> [NodeId] -> DAG s -> ST s Rate
-maximum_rate is nids0 dag = do
-  let nids1 = map (nids0 !!) is
-      compare_rate = compare `on` g_node_rate
-  nodes <- mapM (flip lookup_g_node dag) nids1
-  return (g_node_rate (maximumBy compare_rate nodes))
+maximum_rate is nids dag = do
+  let f current_max_rate i = do
+        node <- lookup_g_node (nids !! i) dag
+        return $! max current_max_rate (g_node_rate node)
+  foldM f IR is
 {-# INLINABLE maximum_rate #-}
 
 simple_inputs :: [UGen] -> ReaderT (DAG s) (ST s) [MCE NodeId]
@@ -749,21 +756,6 @@ instance Dump UGen where
 instance Dump SC3.UGen where
   dumpString = dumpString . graph_to_graphdef "<dump>" . ugen_to_graph
 
-unlines' :: [String] -> String
-unlines' = intercalate "\n"
-
-prints :: Show a => [a] -> String
-prints xs = case xs of
-  [] -> "None."
-  _  -> unlines' (map show xs)
-
-printsWithIndex :: Show a => [a] -> String
-printsWithIndex xs =
-  case xs of
-    [] -> "None."
-    _  -> let f x y = concat [show x, ": ", show y]
-          in  unlines' (zipWith f [(0::Int) ..] xs)
-
 dump_u_graph :: U_Graph -> String
 dump_u_graph ugraph =
   unlines'
@@ -784,3 +776,18 @@ dump_graphdef gd =
      , printsWithIndex (graphdef_controls gd)
      , "--- ugens ---"
      , printsWithIndex (graphdef_ugens gd) ]
+
+unlines' :: [String] -> String
+unlines' = intercalate "\n"
+
+prints :: Show a => [a] -> String
+prints xs = case xs of
+  [] -> "None."
+  _  -> unlines' (map show xs)
+
+printsWithIndex :: Show a => [a] -> String
+printsWithIndex xs =
+  case xs of
+    [] -> "None."
+    _  -> let f x y = concat [show x, ": ", show y]
+          in  unlines' (zipWith f [(0::Int) ..] xs)
