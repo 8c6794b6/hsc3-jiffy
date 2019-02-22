@@ -21,6 +21,7 @@ module Sound.SC3.Jiffy.UGen.Builder
 
   , share
   , control
+  , tr_control
   , mce
   , mce2
   , mceChannel
@@ -30,6 +31,7 @@ module Sound.SC3.Jiffy.UGen.Builder
   , mkUGen
   , mkSimpleUGen
   , mkChannelsArrayUGen
+  , mkDemandUGen
 
   , const_rate
   , maximum_rate
@@ -545,13 +547,19 @@ control rate name val = G (fmap MCEU (hashconsK node))
                     ,g_node_k_index=Nothing
                     ,g_node_k_name=name
                     ,g_node_k_default=val
-                    ,g_node_k_type=k_type}
-    k_type = case rate of
-               IR -> K_IR
-               KR -> K_KR
-               AR -> K_AR
-               DR -> error "control: DR control"
+                    ,g_node_k_type=rate_to_k_type rate}
 {-# INLINABLE control #-}
+
+-- | Create trigger control.
+tr_control :: String -> Sample -> UGen
+tr_control name val = G (fmap MCEU (hashconsK node))
+  where
+    node = G_Node_K {g_node_k_rate=KR
+                    ,g_node_k_index=Nothing
+                    ,g_node_k_name=name
+                    ,g_node_k_default=val
+                    ,g_node_k_type=K_TR}
+{-# INLINABLE tr_control #-}
 
 -- | Recursively expand multi channel inputs, and if the number of
 -- outputs were greater than 1, make proxy node ids.
@@ -613,6 +621,7 @@ mkUGen n_output uid_fn special name rate_fn input_fn input_ugens =
         normalize n_output f input_mce_nids)
 {-# INLINABLE mkUGen #-}
 
+-- | Make simple UGen function.
 mkSimpleUGen :: Int
              -- ^ Number of outputs.
              -> (forall s. DAG s -> ST s UGenId)
@@ -642,6 +651,8 @@ mkSimpleUGen n_output uid_fn special name rate_fn input_ugens =
         normalize n_output f input_mce_nids)
 {-# INLINABLE mkSimpleUGen #-}
 
+-- | Like 'mkSimpleUGen', but treats last input argument as channels
+-- array.
 mkChannelsArrayUGen :: Int
                     -- ^ Number of outputs.
                     -> (forall s. DAG s -> ST s UGenId)
@@ -668,14 +679,40 @@ mkChannelsArrayUGen n_output uid_fn special name rate_fn input_ugens =
                                   ,g_node_u_outputs=outputs
                                   ,g_node_u_special=special
                                   ,g_node_u_ugenid=uid})
-            unwrap is =
-              case is of
-                []   -> return []
-                j:[] -> mce_list <$> unG j
-                j:js -> (:) <$> unG j <*> unwrap js
         input_mce_nids <- unwrap input_ugens
         normalize n_output f input_mce_nids)
 {-# INLINABLE mkChannelsArrayUGen #-}
+
+-- | Dedicated UGen constructor function for demand UGen.
+mkDemandUGen :: a
+             -- ^ Number of outputs, actually unused.
+             -> (forall s. DAG s -> ST s UGenId)
+             -- ^ Function to get 'UGenId' for 'g_node_u_ugenid' field.
+             -> Special
+             -- ^ UGen special.
+             -> String
+             -- ^ UGen name.
+             -> (forall s. [NodeId] -> DAG s -> ST s Rate)
+             -- ^ Function to determine the 'Rate' of UGen
+             -> [UGen]
+             -- ^ Input arguments.
+             -> UGen
+mkDemandUGen _n_output uid_fn special name rate_fn input_ugens =
+  G (do n_output <- mce_degree <$> unG (last input_ugens)
+        let f inputs = do
+              dag <- ask
+              rate <- lift (rate_fn inputs dag)
+              uid <- lift (uid_fn dag)
+              let outputs = replicate n_output rate
+              hashconsU (G_Node_U {g_node_u_rate=rate
+                                  ,g_node_u_name=name
+                                  ,g_node_u_inputs=inputs
+                                  ,g_node_u_outputs=outputs
+                                  ,g_node_u_special=special
+                                  ,g_node_u_ugenid=uid})
+        input_mce_nids <- unwrap input_ugens
+        normalize n_output f input_mce_nids)
+{-# INLINABLE mkDemandUGen #-}
 
 -- mk_simple_ugen :: String -> Rate -> [UGen] -> UGen
 -- mk_simple_ugen name rate = mkUGen 1 noId spec0 name r_fn i_fn
@@ -869,3 +906,25 @@ printsWithIndex xs =
     [] -> "None."
     _  -> let f x y = concat [show x, ": ", show y]
           in  unlines' (zipWith f [(0::Int) ..] xs)
+
+
+--
+-- Auxilary
+--
+
+rate_to_k_type :: Rate -> K_Type
+rate_to_k_type rate =
+  case rate of
+    IR -> K_IR
+    KR -> K_KR
+    AR -> K_AR
+    DR -> error "control: DR control"
+{-# INLINE rate_to_k_type #-}
+
+unwrap :: [G (MCE a)] -> ReaderT (DAG s) (ST s) [(MCE a)]
+unwrap is =
+  case is of
+    []   -> return []
+    j:[] -> mce_list <$> unG j
+    j:js -> (:) <$> unG j <*> unwrap js
+{-# INLINE unwrap #-}

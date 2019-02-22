@@ -62,6 +62,24 @@ enum_graph = do
   same_graphdef "enum_loop_doneaction" j0 h0
   same_graphdef "enum_warp" j1 h1
 
+controls_graph :: Spec
+controls_graph = do
+  let j0 = let c1 = tr_control "t_amp" 0
+               c2 = control KR "freq" 0
+               c3 = control AR "amp" 0
+               c4 = control IR "dur" 0
+               e = decay c1 c4
+               s = sinOsc AR c2 0 * e * c3
+           in  out 0 (mce [s,s])
+      h0 = let c1 = S.tr_control "t_amp" 0
+               c2 = S.control KR "freq" 0
+               c3 = S.control AR "amp" 0
+               c4 = S.control IR "dur" 0
+               e = S.decay c1 c4
+               s = S.sinOsc AR c2 0 * e * c3
+           in  S.out 0 (S.mce [s,s])
+  same_graphdef "controls_with_various_rates" j0 h0
+
 main :: IO ()
 main =
   hspec
@@ -71,4 +89,5 @@ main =
             mix_mce_graph
             nondet_graph
             mrg_graph
-            enum_graph))
+            enum_graph
+            controls_graph))

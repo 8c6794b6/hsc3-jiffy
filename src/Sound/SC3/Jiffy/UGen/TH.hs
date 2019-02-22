@@ -74,9 +74,13 @@ defineUGen u =
       ugenidE = if ugen_nondet u
                    then [e|hashUId|]
                    else [e|noId|]
-      mk = if ugen_std_mce u > 0
-              then [e|mkChannelsArrayUGen|]
-              else [e|mkSimpleUGen|]
+      mk
+        | Nothing <- ugen_outputs u, not (ugen_nc_input u)
+        = [e|mkDemandUGen|] -- special case for 'demand'.
+        | ugen_std_mce u > 0
+        = [e|mkChannelsArrayUGen|]
+        | otherwise
+        = [e|mkSimpleUGen|]
       ugenT = [t|UGen|]
       bodyE = [e|$(mk) $(noutE) $(ugenidE) spec0 $(scnameE)
                        $(rateE) $(listE input_exps)|]
