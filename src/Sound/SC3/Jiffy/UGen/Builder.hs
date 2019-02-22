@@ -2,7 +2,8 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 -- -----------------------------------------------------------------------
--- | Implicit and explicit sharing with hsc3 synthdef
+-- |
+-- Implicit and explicit sharing with hsc3 synthdef.
 --
 -- This module contains functions to construct SuperCollider synthdef
 -- with hsc3 package.  The construction computation supports implicit
@@ -13,7 +14,33 @@
 --    <http://okmij.org/ftp/tagless-final/sharing/index.html>
 --
 
-module Sound.SC3.Jiffy.UGen.Builder where
+module Sound.SC3.Jiffy.UGen.Builder
+  ( UGen
+  , gnode_to_graph
+  , gnode_to_graphdef
+
+  , share
+  , control
+  , mce
+  , mce2
+  , mceChannel
+  , dup
+  , mix
+
+  , mkUGen
+  , mkSimpleUGen
+  , mkChannelsArrayUGen
+
+  , const_rate
+  , maximum_rate
+  , get_rate_at
+  , noId
+  , hashUId
+  , spec0
+  , envelope_to_ugen
+
+  , Dump(..)
+  ) where
 
 -- base
 import Control.Monad (foldM)
@@ -33,7 +60,7 @@ import qualified Data.HashTable.ST.Basic as HT
 import Sound.SC3
   ( Audible(..), Binary(..), BinaryOp(..), Rate(..), K_Type(..)
   , Output, Sample, Special(..), UGenId(..), Unary(..), Envelope(..)
-  , envelope_sc3_array, toUId )
+  , envelope_sc3_array )
 import Sound.SC3.Server.Graphdef (Graphdef(..))
 import Sound.SC3.Server.Graphdef.Graph (graph_to_graphdef)
 import Sound.SC3.UGen.Graph
@@ -85,9 +112,6 @@ runG (G m) =
         um <- as_u_nodes umap
         count <- readSTRef (hashcount dag)
         return (r, (count, cm, km, um)))
-
-evalG :: G a -> a
-evalG = fst . runG
 
 -- | Data type of directed acyclic graph to construct synthdef.  The
 -- 'BiMap's are separated between constants, control nodes, and ugen
@@ -463,14 +487,20 @@ hashconsU = hashcons NodeId_U umap
 -- Converting to U_Graph and Graphdef
 --
 
+gnode_to_graphdef :: String -> UGen -> Graphdef
+gnode_to_graphdef name g =
+  let g' = g `seq` name `seq` gnode_to_graph g
+  in  g' `seq` graph_to_graphdef name g'
+
 gnode_to_graph :: UGen -> U_Graph
 gnode_to_graph g =
-  let (_, (count, cm, km, um)) = runG g
-      ugraph = U_Graph {ug_next_id=count
+  case runG g of
+    (_, (count, cm, km, um)) ->
+      let ug = U_Graph {ug_next_id=count
                        ,ug_constants=cm
                        ,ug_controls=km
                        ,ug_ugens=um}
-  in  ug_add_implicit ugraph
+      in  ug `seq` ug_add_implicit ug
 
 gnode_to_unode :: Int -> G_Node -> U_Node
 gnode_to_unode nid node =
@@ -495,9 +525,6 @@ gnode_to_unode nid node =
                ,u_node_u_special=g_node_u_special
                ,u_node_u_ugenid=g_node_u_ugenid}
 {-# INLINABLE gnode_to_unode #-}
-
-gnode_to_graphdef :: String -> UGen -> Graphdef
-gnode_to_graphdef name g = graph_to_graphdef name (gnode_to_graph g)
 
 
 --
@@ -585,99 +612,148 @@ mkUGen n_output uid_fn special name rate_fn input_fn input_ugens =
         normalize n_output f input_mce_nids)
 {-# INLINABLE mkUGen #-}
 
-mk_simple_ugen :: String -> Rate -> [UGen] -> UGen
-mk_simple_ugen name rate = mkUGen 1 noId spec0 name r_fn i_fn
-  where
-    r_fn = const_rate rate
-    i_fn = mapM unG
-{-# INLINE mk_simple_ugen #-}
+mkSimpleUGen :: Int
+             -- ^ Number of outputs.
+             -> (forall s. DAG s -> ST s UGenId)
+             -- ^ Function to get 'UGenId' for 'g_node_u_ugenid' field.
+             -> Special
+             -- ^ UGen special.
+             -> String
+             -- ^ UGen name.
+             -> (forall s. [NodeId] -> DAG s -> ST s Rate)
+             -- ^ Function to determine the 'Rate' of UGen
+             -> [UGen]
+             -- ^ Input arguments.
+             -> UGen
+mkSimpleUGen n_output uid_fn special name rate_fn input_ugens =
+  G (do let f inputs = do
+              dag <- ask
+              rate <- lift (rate_fn inputs dag)
+              uid <- lift (uid_fn dag)
+              let outputs = replicate n_output rate
+              hashconsU (G_Node_U {g_node_u_rate=rate
+                                  ,g_node_u_name=name
+                                  ,g_node_u_inputs=inputs
+                                  ,g_node_u_outputs=outputs
+                                  ,g_node_u_special=special
+                                  ,g_node_u_ugenid=uid})
+        input_mce_nids <- mapM unG input_ugens
+        normalize n_output f input_mce_nids)
+{-# INLINABLE mkSimpleUGen #-}
 
-mk_simple_id_ugen :: String -> Rate -> [UGen] -> UGen
-mk_simple_id_ugen name rate = mkUGen 1 hashUId spec0 name r_fn i_fn
-  where
-    r_fn = const_rate rate
-    i_fn = simple_inputs
-{-# INLINABLE mk_simple_id_ugen #-}
+mkChannelsArrayUGen :: Int
+                    -- ^ Number of outputs.
+                    -> (forall s. DAG s -> ST s UGenId)
+                    -- ^ Function to get 'UGenId' for 'g_node_u_ugenid'
+                    -- field.
+                    -> Special
+                    -- ^ UGen special.
+                    -> String
+                    -- ^ UGen name.
+                    -> (forall s. [NodeId] -> DAG s -> ST s Rate)
+                    -- ^ Function to determine the 'Rate' of UGen
+                    -> [UGen]
+                    -- ^ Input arguments.
+                    -> UGen
+mkChannelsArrayUGen n_output uid_fn special name rate_fn input_ugens =
+  G (do let f inputs = do
+              dag <- ask
+              rate <- lift (rate_fn inputs dag)
+              uid <- lift (uid_fn dag)
+              let outputs = replicate n_output rate
+              hashconsU (G_Node_U {g_node_u_rate=rate
+                                  ,g_node_u_name=name
+                                  ,g_node_u_inputs=inputs
+                                  ,g_node_u_outputs=outputs
+                                  ,g_node_u_special=special
+                                  ,g_node_u_ugenid=uid})
+            unwrap is =
+              case is of
+                []   -> return []
+                j:[] -> mce_list <$> unG j
+                j:js -> (:) <$> unG j <*> unwrap js
+        input_mce_nids <- unwrap input_ugens
+        normalize n_output f input_mce_nids)
+{-# INLINABLE mkChannelsArrayUGen #-}
 
-mk_filter_ugen :: Int -> (forall s . DAG s -> ST s UGenId)
-               -> Special -> String -> [UGen] -> UGen
-mk_filter_ugen n_output u_fn special name input_ugens =
-  mkUGen n_output u_fn special name r_fn i_fn input_ugens
-  where
-    r_fn = maximum_rate [0..(length input_ugens - 1)]
-    i_fn = simple_inputs
-{-# INLINABLE mk_filter_ugen #-}
+-- mk_simple_ugen :: String -> Rate -> [UGen] -> UGen
+-- mk_simple_ugen name rate = mkUGen 1 noId spec0 name r_fn i_fn
+--   where
+--     r_fn = const_rate rate
+--     i_fn = mapM unG
+-- {-# INLINE mk_simple_ugen #-}
 
-mk_simple_filter_ugen :: String -> [UGen] -> UGen
-mk_simple_filter_ugen name = mk_filter_ugen 1 noId spec0 name
-{-# INLINABLE mk_simple_filter_ugen #-}
+-- mk_simple_id_ugen :: String -> Rate -> [UGen] -> UGen
+-- mk_simple_id_ugen name rate = mkUGen 1 hashUId spec0 name r_fn i_fn
+--   where
+--     r_fn = const_rate rate
+--     i_fn = simple_inputs
+-- {-# INLINABLE mk_simple_id_ugen #-}
 
-mk_filter_id_ugen :: String -> [UGen] -> UGen
-mk_filter_id_ugen = mk_filter_ugen 1 hashUId spec0
-{-# INLINABLE mk_filter_id_ugen #-}
+-- mk_filter_ugen :: Int -> (forall s . DAG s -> ST s UGenId)
+--                -> Special -> String -> [UGen] -> UGen
+-- mk_filter_ugen n_output u_fn special name input_ugens =
+--   mkUGen n_output u_fn special name r_fn i_fn input_ugens
+--   where
+--     r_fn = maximum_rate [0..(length input_ugens - 1)]
+--     i_fn = simple_inputs
+-- {-# INLINABLE mk_filter_ugen #-}
+
+-- mk_simple_filter_ugen :: String -> [UGen] -> UGen
+-- mk_simple_filter_ugen name = mk_filter_ugen 1 noId spec0 name
+-- {-# INLINABLE mk_simple_filter_ugen #-}
+
+-- mk_filter_id_ugen :: String -> [UGen] -> UGen
+-- mk_filter_id_ugen = mk_filter_ugen 1 hashUId spec0
+-- {-# INLINABLE mk_filter_id_ugen #-}
 
 mk_unary_op_ugen :: Unary -> UGen -> UGen
-mk_unary_op_ugen op a = mkUGen 1 noId special name r_fn i_fn [a]
+mk_unary_op_ugen op a = mkSimpleUGen 1 noId special name r_fn [a]
   where
     special = Special (fromEnum op)
     name = "UnaryOpUGen"
     r_fn = get_rate_at 0
-    i_fn = simple_inputs
 {-# INLINABLE mk_unary_op_ugen #-}
 
 mk_binary_op_ugen :: Binary -> UGen -> UGen -> UGen
-mk_binary_op_ugen op a b = mkUGen 1 noId special name r_fn i_fn [a,b]
+mk_binary_op_ugen op a b = mkSimpleUGen 1 noId special name r_fn [a,b]
   where
     special = Special (fromEnum op)
     name = "BinaryOpUGen"
     r_fn = maximum_rate [0,1]
-    i_fn = simple_inputs
 {-# INLINABLE mk_binary_op_ugen #-}
 
 noId :: DAG s -> ST s UGenId
 noId _ = return NoId
-{-# INLINABLE noId #-}
+{-# INLINE noId #-}
 
 hashUId :: DAG s -> ST s UGenId
-hashUId = fmap toUId . readSTRef . hashcount
-{-# INLINABLE hashUId #-}
+hashUId = fmap UId . readSTRef . hashcount
+{-# INLINE hashUId #-}
 
 spec0 :: Special
 spec0 = Special 0
-{-# INLINABLE spec0 #-}
+{-# INLINE spec0 #-}
 
 const_rate :: Rate -> a -> b -> ST s Rate
 const_rate r _ _ = return r
-{-# INLINEABLE const_rate #-}
+{-# INLINE const_rate #-}
 
 -- | Get rate from index of 'NodeId' argument.
 get_rate_at :: Int -> [NodeId] -> DAG s -> ST s Rate
 get_rate_at i nids dag = do
   n <- lookup_g_node (nids !! i) dag
   return (g_node_rate n)
-{-# INLINABLE get_rate_at #-}
+{-# INLINE get_rate_at #-}
 
 -- | Get maximum rate from selected node ids by input argument indices.
 maximum_rate :: [Int] -> [NodeId] -> DAG s -> ST s Rate
 maximum_rate is nids dag = do
-  let f current_max_rate i = do
+  let f current i = do
         node <- lookup_g_node (nids !! i) dag
-        return $! max current_max_rate (g_node_rate node)
+        return $! max current (g_node_rate node)
   foldM f IR is
-{-# INLINABLE maximum_rate #-}
-
-simple_inputs :: [UGen] -> ReaderT (DAG s) (ST s) [MCE NodeId]
-simple_inputs = mapM unG
-{-# INLINABLE simple_inputs #-}
-
-stdmce_inputs :: [UGen] -> ReaderT (DAG s) (ST s) [MCE NodeId]
-stdmce_inputs ugens = do
-  mce_nids <- mapM unG ugens
-  let f [x] = mce_list x
-      f (x:xs) = x : f xs
-      f [] = []
-  return (f mce_nids)
-{-# INLINABLE stdmce_inputs #-}
+{-# INLINE maximum_rate #-}
 
 
 --
@@ -686,7 +762,7 @@ stdmce_inputs ugens = do
 
 share :: Applicative m => G a -> G (m a)
 share g = G (fmap pure (unG g))
-{-# INLINABLE share #-}
+{-# INLINE share #-}
 {-# SPECIALIZE share :: UGen -> G UGen #-}
 
 mceChannel :: Int -> UGen -> UGen

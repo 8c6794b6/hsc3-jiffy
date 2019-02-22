@@ -74,12 +74,12 @@ defineUGen u =
       ugenidE = if ugen_nondet u
                    then [e|hashUId|]
                    else [e|noId|]
-      inputE = if ugen_std_mce u > 0
-                  then [e|stdmce_inputs|]
-                  else [e|simple_inputs|]
+      mk = if ugen_std_mce u > 0
+              then [e|mkChannelsArrayUGen|]
+              else [e|mkSimpleUGen|]
       ugenT = [t|UGen|]
-      bodyE = [e|mkUGen $(noutE) $(ugenidE) spec0 $(scnameE)
-                        $(rateE) $(inputE) $(listE input_exps)|]
+      bodyE = [e|$(mk) $(noutE) $(ugenidE) spec0 $(scnameE)
+                       $(rateE) $(listE input_exps)|]
       --
       typ = foldr (\a b -> appT (appT arrowT a) b) ugenT tyargs1
       cls = [clause pats1 (normalB bodyE) []]
