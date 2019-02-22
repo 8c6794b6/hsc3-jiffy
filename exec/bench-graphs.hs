@@ -8,20 +8,21 @@ import Criterion.Main
 
 -- hsc3
 import Sound.SC3 (Rate(..), BinaryOp(..))
-import Sound.SC3.UGen.Graph (U_Graph(..), ugen_to_graph)
+import Sound.SC3.UGen.Graph (U_Graph(..))
+
 import qualified Sound.SC3 as S
+import qualified Sound.SC3.UGen.Graph as SG
 
 -- Internal
 import Sound.SC3.Jiffy.UGen.Builder
-  (UGen, gnode_to_graph, control, mce, share)
 import Sound.SC3.Jiffy.UGen.DB
 
 h :: S.UGen -> Int
-h x = ug_next_id (ugen_to_graph x)
+h x = ug_next_id (SG.ugen_to_graph x)
 {-# INLINE h #-}
 
 j :: UGen -> Int
-j x = ug_next_id (gnode_to_graph x)
+j x = ug_next_id (ugen_to_graph x)
 {-# INLINE j #-}
 
 g01h :: S.UGen -> S.UGen

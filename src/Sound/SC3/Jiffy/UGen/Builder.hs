@@ -16,8 +16,8 @@
 
 module Sound.SC3.Jiffy.UGen.Builder
   ( UGen
-  , gnode_to_graph
-  , gnode_to_graphdef
+  , ugen_to_graph
+  , ugen_to_graphdef
 
   , share
   , control
@@ -65,8 +65,9 @@ import Sound.SC3.Server.Graphdef (Graphdef(..))
 import Sound.SC3.Server.Graphdef.Graph (graph_to_graphdef)
 import Sound.SC3.UGen.Graph
   ( U_Graph(..), U_Node(..), From_Port(..)
-  , ug_add_implicit, {- ug_pv_validate, -} ugen_to_graph )
+  , ug_add_implicit, {- ug_pv_validate, -} )
 import qualified Sound.SC3 as SC3
+import qualified Sound.SC3.UGen.Graph as SC3UG
 
 -- transformers
 import Control.Monad.Trans.Class (lift)
@@ -405,7 +406,7 @@ instance RealFrac UGen where
   floor = error "G: floor"
 
 instance Audible UGen where
-  play_at opt g = play_at opt (gnode_to_graphdef "anon" g)
+  play_at opt g = play_at opt (ugen_to_graphdef "anon" g)
 
 instance BinaryOp UGen where
   clip2 = mk_binary_op_ugen Clip2
@@ -487,13 +488,13 @@ hashconsU = hashcons NodeId_U umap
 -- Converting to U_Graph and Graphdef
 --
 
-gnode_to_graphdef :: String -> UGen -> Graphdef
-gnode_to_graphdef name g =
-  let g' = g `seq` name `seq` gnode_to_graph g
+ugen_to_graphdef :: String -> UGen -> Graphdef
+ugen_to_graphdef name g =
+  let g' = g `seq` name `seq` ugen_to_graph g
   in  g' `seq` graph_to_graphdef name g'
 
-gnode_to_graph :: UGen -> U_Graph
-gnode_to_graph g =
+ugen_to_graph :: UGen -> U_Graph
+ugen_to_graph g =
   case runG g of
     (_, (count, cm, km, um)) ->
       let ug = U_Graph {ug_next_id=count
@@ -827,10 +828,11 @@ instance Dump Graphdef where
   dumpString = dump_graphdef
 
 instance Dump UGen where
-  dumpString = dumpString . gnode_to_graphdef "<dump>"
+  dumpString = dumpString . ugen_to_graphdef "<dump>"
 
 instance Dump SC3.UGen where
-  dumpString = dumpString . graph_to_graphdef "<dump>" . ugen_to_graph
+  dumpString =
+    dumpString . graph_to_graphdef "<dump>" . SC3UG.ugen_to_graph
 
 dump_u_graph :: U_Graph -> String
 dump_u_graph ugraph =

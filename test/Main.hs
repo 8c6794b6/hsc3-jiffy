@@ -5,8 +5,8 @@ import Test.Hspec
 -- hsc3
 import Sound.SC3 (Rate(..), Loop(..), DoneAction(..), Warp(..))
 import Sound.SC3.Server.Graphdef.Graph (graph_to_graphdef)
-import Sound.SC3.UGen.Graph (ugen_to_graph)
 import qualified Sound.SC3 as S
+import qualified Sound.SC3.UGen.Graph as SG
 
 -- Internal
 import Sound.SC3.Jiffy.UGen.Builder
@@ -14,8 +14,8 @@ import Sound.SC3.Jiffy.UGen.DB
 
 same_graphdef :: String -> UGen -> S.UGen -> Spec
 same_graphdef name j h =
-  let jg = (gnode_to_graphdef "tmp" j)
-      hg = (graph_to_graphdef "tmp" (ugen_to_graph h))
+  let jg = (ugen_to_graphdef "tmp" j)
+      hg = (graph_to_graphdef "tmp" (SG.ugen_to_graph h))
   in  describe name (it "should be identical" (jg `shouldBe` hg))
 
 simple_graph :: Spec

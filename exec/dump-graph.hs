@@ -10,7 +10,7 @@ import Sound.SC3 (Rate(..), BinaryOp(..))
 import Sound.SC3.Server.Graphdef (encode_graphdef)
 
 -- Internal
-import Sound.SC3.Jiffy.UGen.Builder (UGen, gnode_to_graphdef, mce, share)
+import Sound.SC3.Jiffy.UGen.Builder (UGen, ugen_to_graphdef, mce, share)
 import Sound.SC3.Jiffy.UGen.DB
 
 g07 :: Int -> UGen
@@ -27,5 +27,5 @@ g07 n = do
 
 main :: IO ()
 main =
-  let gd = gnode_to_graphdef "g07" (g07 4096)
+  let gd = ugen_to_graphdef "g07" (g07 4096)
   in  print (rnf (encode_graphdef gd))
