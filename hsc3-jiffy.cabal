@@ -45,8 +45,10 @@ benchmark bench-graphs
   main-is:             bench-graphs.hs
   ghc-options:         -Wall -threaded -rtsopts
   build-depends:       base >= 4.10 && < 5
+                     , bytestring
                      , criterion
                      , hsc3
+                     , vivid
                      , hsc3-jiffy
   default-language:    Haskell2010
 
