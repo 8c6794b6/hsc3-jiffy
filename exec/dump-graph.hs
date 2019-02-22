@@ -2,9 +2,15 @@ module Main where
 
 import Data.Foldable (foldr')
 
+-- deepseq
+import Control.DeepSeq
+
+-- hsc3
 import Sound.SC3 (Rate(..), BinaryOp(..))
-import Sound.SC3.UGen.Graph (U_Graph(..))
-import Sound.SC3.Jiffy.UGen.Builder (UGen, gnode_to_graph, mce, share)
+import Sound.SC3.Server.Graphdef (encode_graphdef)
+
+-- Internal
+import Sound.SC3.Jiffy.UGen.Builder (UGen, gnode_to_graphdef, mce, share)
 import Sound.SC3.Jiffy.UGen.DB
 
 g07 :: Int -> UGen
@@ -20,4 +26,6 @@ g07 n = do
   out 0 (o1 * 0.5)
 
 main :: IO ()
-main = print (ug_next_id (gnode_to_graph (g07 4096)))
+main =
+  let gd = gnode_to_graphdef "g07" (g07 4096)
+  in  print (rnf (encode_graphdef gd))

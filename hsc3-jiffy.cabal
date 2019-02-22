@@ -34,6 +34,7 @@ executable dump-graph
   main-is:             dump-graph.hs
   ghc-options:         -Wall -threaded -rtsopts
   build-depends:       base >= 4.10 && < 5
+                     , deepseq
                      , hsc3
                      , hsc3-jiffy
   default-language:    Haskell2010
