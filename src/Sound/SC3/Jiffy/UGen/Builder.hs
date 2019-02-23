@@ -20,6 +20,7 @@ module Sound.SC3.Jiffy.UGen.Builder
   , ugen_to_graphdef
 
   , share
+  , constant
   , control
   , tr_control
   , mce
@@ -61,8 +62,8 @@ import qualified Data.HashTable.ST.Basic as HT
 -- hsc3
 import Sound.SC3
   ( Audible(..), Binary(..), BinaryOp(..), Rate(..), K_Type(..)
-  , Output, Sample, Special(..), UGenId(..), Unary(..), Envelope(..)
-  , envelope_sc3_array )
+  , Output, Sample, Special(..), UGenId(..), Unary(..), UnaryOp(..)
+  , Envelope(..), envelope_sc3_array )
 import Sound.SC3.Server.Graphdef (Graphdef(..))
 import Sound.SC3.Server.Graphdef.Graph (graph_to_graphdef)
 import Sound.SC3.UGen.Graph
@@ -410,6 +411,10 @@ instance RealFrac UGen where
 instance Audible UGen where
   play_at opt g = play_at opt (ugen_to_graphdef "anon" g)
 
+instance UnaryOp UGen where
+  midiCPS = mk_unary_op_ugen MIDICPS
+  cpsMIDI = mk_unary_op_ugen CPSMIDI
+
 instance BinaryOp UGen where
   clip2 = mk_binary_op_ugen Clip2
 
@@ -492,8 +497,8 @@ hashconsU = hashcons NodeId_U umap
 
 ugen_to_graphdef :: String -> UGen -> Graphdef
 ugen_to_graphdef name g =
-  let g' = g `seq` name `seq` ugen_to_graph g
-  in  g' `seq` graph_to_graphdef name g'
+  let gr = ugen_to_graph g
+  in  gr `seq` graph_to_graphdef name gr
 
 ugen_to_graph :: UGen -> U_Graph
 ugen_to_graph g =
@@ -537,7 +542,7 @@ gnode_to_unode nid node =
 -- | Create constant value node.
 constant :: Sample -> UGen
 constant v = G (fmap MCEU (hashconsC (G_Node_C v)))
-{-# INLINABLE constant #-}
+{-# INLINE constant #-}
 
 -- | Create control value node.
 control :: Rate -> String -> Sample -> UGen
