@@ -17,11 +17,14 @@ library
   hs-source-dirs:      src
   exposed-modules:     Sound.SC3.Jiffy.UGen.Builder
                        Sound.SC3.Jiffy.UGen.DB
+                       Sound.SC3.Jiffy.Encode
   other-modules:       Sound.SC3.Jiffy.UGen.TH
                        Sound.SC3.Jiffy.UGen.Orphan
   build-depends:       base >= 4.12 && < 5
+                     , bytestring
                      , hashable
                      , hashtables
+                     , hosc
                      , hsc3
                      , hsc3-db
                      , template-haskell

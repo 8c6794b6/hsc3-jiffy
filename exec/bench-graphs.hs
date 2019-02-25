@@ -16,26 +16,28 @@ import Criterion.Main (Benchmark, defaultMain, bench, bgroup, nf)
 
 -- hsc3
 import Sound.SC3 (Rate(..), BinaryOp(..))
-import Sound.SC3.Server.Graphdef (encode_graphdef)
 import Sound.SC3.Server.Graphdef.Graph (graph_to_graphdef)
 
 import qualified Sound.SC3 as S
-import qualified Sound.SC3.UGen.Graph as SG
+import qualified Sound.SC3.UGen.Graph as SUG
+import qualified Sound.SC3.Server.Graphdef as SSG
 
 -- vivid
 import qualified Vivid as V
 import qualified Vivid.SynthDef.FromUA as FromUA
 
 -- Internal
+import Sound.SC3.Jiffy.Encode
 import Sound.SC3.Jiffy.UGen.Builder
 import Sound.SC3.Jiffy.UGen.DB
 
 h :: S.UGen -> ByteString
-h = toStrict . encode_graphdef . graph_to_graphdef "h" . SG.ugen_to_graph
+h = toStrict . SSG.encode_graphdef .
+    graph_to_graphdef "b" . SUG.ugen_to_graph
 {-# INLINE h #-}
 
 j :: UGen -> ByteString
-j = toStrict . encode_graphdef . ugen_to_graphdef "j"
+j = toStrict . encode_graphdef . ugen_to_graphdef "b"
 {-# INLINE j #-}
 
 v :: V.SynthDef a -> ByteString

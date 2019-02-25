@@ -7,15 +7,18 @@ import Sound.SC3 (Rate(..), Loop(..), DoneAction(..), Warp(..))
 import Sound.SC3.Server.Graphdef.Graph (graph_to_graphdef)
 import qualified Sound.SC3 as S
 import qualified Sound.SC3.UGen.Graph as SG
+import qualified Sound.SC3.Server.Graphdef as SSG
 
 -- Internal
+import Sound.SC3.Jiffy.Encode
 import Sound.SC3.Jiffy.UGen.Builder
 import Sound.SC3.Jiffy.UGen.DB
 
 same_graphdef :: String -> UGen -> S.UGen -> Spec
 same_graphdef name j h =
-  let jg = (ugen_to_graphdef "tmp" j)
-      hg = (graph_to_graphdef "tmp" (SG.ugen_to_graph h))
+  let jg = encode_graphdef (ugen_to_graphdef "tmp" j)
+      hg = SSG.encode_graphdef
+             (graph_to_graphdef "tmp" (SG.ugen_to_graph h))
   in  describe name (it "should be identical" (jg `shouldBe` hg))
 
 simple_graph :: Spec

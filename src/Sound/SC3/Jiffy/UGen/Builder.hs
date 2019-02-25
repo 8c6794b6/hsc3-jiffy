@@ -59,11 +59,16 @@ import Data.Hashable (Hashable(..))
 import qualified Data.HashTable.Class as HC
 import qualified Data.HashTable.ST.Basic as HT
 
+-- hosc
+import Sound.OSC (sendMessage)
+
 -- hsc3
 import Sound.SC3
   ( Audible(..), Binary(..), BinaryOp(..), Rate(..), K_Type(..)
   , Output, Sample, Special(..), UGenId(..), Unary(..), UnaryOp(..)
   , Envelope(..), envelope_sc3_array )
+import Sound.SC3.Server.Command.Generic (withCM)
+import Sound.SC3.Server.Command.Plain (d_recv_bytes, s_new)
 import Sound.SC3.Server.Graphdef (Graphdef(..))
 import Sound.SC3.Server.Graphdef.Graph (graph_to_graphdef)
 import Sound.SC3.UGen.Graph
@@ -77,9 +82,9 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT(..), ask)
 
 -- Internal
+import Sound.SC3.Jiffy.Encode
 import Sound.SC3.Jiffy.UGen.Orphan ()
 
-
 --
 -- Wrapper newtype
 --
@@ -103,20 +108,6 @@ instance Monad G where
   G m >>= k = G (m >>= unG . k)
   {-# INLINE (>>=) #-}
 
-runG :: G a -> (a, (Int, [U_Node], [U_Node], [U_Node]))
-runG (G m) =
-  runST
-    (do dag <- emptyDAG
-        r <- runReaderT m dag
-        let as_u_nodes f | BiMap _ kt <- f dag =
-              fmap (sortBy (compare `on` u_node_id)) (HC.foldM g [] kt)
-            g acc (k,v) = return (gnode_to_unode k v : acc)
-        cm <- as_u_nodes cmap
-        km <- as_u_nodes kmap
-        um <- as_u_nodes umap
-        count <- readSTRef (hashcount dag)
-        return (r, (count, cm, km, um)))
-
 -- | Data type of directed acyclic graph to construct synthdef.  The
 -- 'BiMap's are separated between constants, control nodes, and ugen
 -- nodes, to keep the hash table small. But the 'Int' value for
@@ -135,7 +126,6 @@ instance Show (DAG s) where
 emptyDAG :: ST s (DAG s)
 emptyDAG = DAG <$> newSTRef 0 <*> empty 16 <*> empty 8 <*> empty 128
 
-
 --
 -- Simple bidirectional map
 --
@@ -174,7 +164,6 @@ insert_at v k (BiMap vt kt) = HC.insert vt v k >> HC.insert kt k v
 {-# SPECIALIZE insert_at
   :: G_Node -> Int -> BiMap s G_Node -> ST s () #-}
 
-
 --
 -- Node and node ID
 --
@@ -253,7 +242,6 @@ instance Hashable NodeId where
                        NodeId_P k p -> k `hashWithSalt` p
   {-# INLINE hashWithSalt #-}
 
-
 --
 -- MCE, recursivly nested
 --
@@ -330,7 +318,77 @@ is_mce_vector m =
     _       -> False
 {-# INLINABLE is_mce_vector #-}
 
-
+--
+-- Auxiliary functions for NodeId, DAG, and G_Node
+--
+
+nid_value :: NodeId -> Int
+nid_value nid =
+  case nid of
+    NodeId_C i -> i
+    NodeId_K i _ -> i
+    NodeId_U i -> i
+    NodeId_P i _ -> i
+{-# INLINABLE nid_value #-}
+
+lookup_g_node :: NodeId -> DAG s -> ST s G_Node
+lookup_g_node nid dag =
+  case nid of
+    NodeId_C k -> lookup_val k (cmap dag)
+    NodeId_K k _ -> lookup_val k (kmap dag)
+    NodeId_U k -> lookup_val k (umap dag)
+    NodeId_P k _ -> lookup_val k (umap dag)
+{-# INLINABLE lookup_g_node #-}
+
+nid_to_port :: NodeId -> From_Port
+nid_to_port nid =
+  case nid of
+    NodeId_C k -> From_Port_C k
+    NodeId_K k t -> From_Port_K k t
+    NodeId_U k -> From_Port_U k Nothing
+    NodeId_P k p -> From_Port_U k (Just p)
+{-# INLINABLE nid_to_port #-}
+
+g_node_rate :: G_Node -> Rate
+g_node_rate n =
+  case n of
+    G_Node_C {} -> IR
+    G_Node_K {} -> g_node_k_rate n
+    G_Node_U {} -> g_node_u_rate n
+{-# INLINABLE g_node_rate #-}
+
+--
+-- Hash-consing
+--
+
+hashcons :: (Int -> NodeId)
+         -> (DAG s -> BiMap s G_Node)
+         -> G_Node
+         -> ReaderT (DAG s) (ST s) NodeId
+hashcons con prj x = do
+  dag <- ask
+  v <- lift (lookup_key x (prj dag))
+  case v of
+    Nothing -> lift (do count <- readSTRef (hashcount dag)
+                        let count' = count + 1
+                        insert_at x count (prj dag)
+                        count' `seq` writeSTRef (hashcount dag) count'
+                        return (con count))
+    Just k  -> return (con k)
+{-# INLINABLE hashcons #-}
+
+hashconsC :: G_Node -> ReaderT (DAG s) (ST s) NodeId
+hashconsC = hashcons NodeId_C cmap
+{-# INLINABLE hashconsC #-}
+
+hashconsK :: G_Node -> ReaderT (DAG s) (ST s) NodeId
+hashconsK n = hashcons (flip NodeId_K (g_node_k_type n)) kmap n
+{-# INLINABLE hashconsK #-}
+
+hashconsU :: G_Node -> ReaderT (DAG s) (ST s) NodeId
+hashconsU = hashcons NodeId_U umap
+{-# INLINABLE hashconsU #-}
+
 --
 -- The UGen type and instance declarations
 --
@@ -409,7 +467,11 @@ instance RealFrac UGen where
   floor = error "G: floor"
 
 instance Audible UGen where
-  play_at opt g = play_at opt (ugen_to_graphdef "anon" g)
+  play_at (nid,aa,gid,params) ug =
+    let gd = ugen_to_graphdef "anon" ug
+        dr = d_recv_bytes (encode_graphdef gd)
+        sn = s_new "anon" nid aa gid params
+    in  sendMessage (withCM dr sn)
 
 instance UnaryOp UGen where
   midiCPS = mk_unary_op_ugen MIDICPS
@@ -418,79 +480,6 @@ instance UnaryOp UGen where
 instance BinaryOp UGen where
   clip2 = mk_binary_op_ugen Clip2
 
-
---
--- Auxiliary functions for NodeId, DAG, and G_Node
---
-
-nid_value :: NodeId -> Int
-nid_value nid =
-  case nid of
-    NodeId_C i -> i
-    NodeId_K i _ -> i
-    NodeId_U i -> i
-    NodeId_P i _ -> i
-{-# INLINABLE nid_value #-}
-
-lookup_g_node :: NodeId -> DAG s -> ST s G_Node
-lookup_g_node nid dag =
-  case nid of
-    NodeId_C k -> lookup_val k (cmap dag)
-    NodeId_K k _ -> lookup_val k (kmap dag)
-    NodeId_U k -> lookup_val k (umap dag)
-    NodeId_P k _ -> lookup_val k (umap dag)
-{-# INLINABLE lookup_g_node #-}
-
-nid_to_port :: NodeId -> From_Port
-nid_to_port nid =
-  case nid of
-    NodeId_C k -> From_Port_C k
-    NodeId_K k t -> From_Port_K k t
-    NodeId_U k -> From_Port_U k Nothing
-    NodeId_P k p -> From_Port_U k (Just p)
-{-# INLINABLE nid_to_port #-}
-
-g_node_rate :: G_Node -> Rate
-g_node_rate n =
-  case n of
-    G_Node_C {} -> IR
-    G_Node_K {} -> g_node_k_rate n
-    G_Node_U {} -> g_node_u_rate n
-{-# INLINABLE g_node_rate #-}
-
---
--- Hash-consing
---
-
-hashcons :: (Int -> NodeId)
-         -> (DAG s -> BiMap s G_Node)
-         -> G_Node
-         -> ReaderT (DAG s) (ST s) NodeId
-hashcons con prj x = do
-  dag <- ask
-  v <- lift (lookup_key x (prj dag))
-  case v of
-    Nothing -> lift (do count <- readSTRef (hashcount dag)
-                        let count' = count + 1
-                        insert_at x count (prj dag)
-                        count' `seq` writeSTRef (hashcount dag) count'
-                        return (con count))
-    Just k  -> return (con k)
-{-# INLINABLE hashcons #-}
-
-hashconsC :: G_Node -> ReaderT (DAG s) (ST s) NodeId
-hashconsC = hashcons NodeId_C cmap
-{-# INLINABLE hashconsC #-}
-
-hashconsK :: G_Node -> ReaderT (DAG s) (ST s) NodeId
-hashconsK n = hashcons (flip NodeId_K (g_node_k_type n)) kmap n
-{-# INLINABLE hashconsK #-}
-
-hashconsU :: G_Node -> ReaderT (DAG s) (ST s) NodeId
-hashconsU = hashcons NodeId_U umap
-{-# INLINABLE hashconsU #-}
-
-
 --
 -- Converting to U_Graph and Graphdef
 --
@@ -509,6 +498,20 @@ ugen_to_graph g =
                        ,ug_controls=km
                        ,ug_ugens=um}
       in  ug `seq` ug_add_implicit ug
+
+runG :: G a -> (a, (Int, [U_Node], [U_Node], [U_Node]))
+runG (G m) =
+  runST
+    (do dag <- emptyDAG
+        r <- runReaderT m dag
+        let as_u_nodes f | BiMap _ kt <- f dag =
+              fmap (sortBy (compare `on` u_node_id)) (HC.foldM g [] kt)
+            g acc (k,v) = return (gnode_to_unode k v : acc)
+        cm <- as_u_nodes cmap
+        km <- as_u_nodes kmap
+        um <- as_u_nodes umap
+        count <- readSTRef (hashcount dag)
+        return (r, (count, cm, km, um)))
 
 gnode_to_unode :: Int -> G_Node -> U_Node
 gnode_to_unode nid node =
@@ -534,7 +537,6 @@ gnode_to_unode nid node =
                ,u_node_u_ugenid=g_node_u_ugenid}
 {-# INLINABLE gnode_to_unode #-}
 
-
 --
 -- Constant, control, and UGen constructors
 --
@@ -798,7 +800,6 @@ maximum_rate is nids dag = do
   foldM f IR is
 {-# INLINE maximum_rate #-}
 
-
 --
 -- Composite and auxiliary UGen related functions
 --
@@ -853,7 +854,6 @@ envelope_to_ugen e =
     Nothing -> error "envelope_to_ugen: bad Envelope"
 {-# INLINABLE envelope_to_ugen #-}
 
-
 --
 -- Dumper
 --

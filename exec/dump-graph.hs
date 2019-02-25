@@ -7,9 +7,9 @@ import Control.DeepSeq
 
 -- hsc3
 import Sound.SC3 (Rate(..), BinaryOp(..))
-import Sound.SC3.Server.Graphdef (encode_graphdef)
 
 -- Internal
+import Sound.SC3.Jiffy.Encode (encode_graphdef)
 import Sound.SC3.Jiffy.UGen.Builder (UGen, ugen_to_graphdef, mce, share)
 import Sound.SC3.Jiffy.UGen.DB
 
