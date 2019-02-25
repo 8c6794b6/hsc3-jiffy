@@ -424,6 +424,10 @@ instance Eq UGen where
 
 instance Ord UGen where
   compare _ _ = error "G: compare"
+  min = mk_binary_op_ugen Min
+  {-# INLINE min #-}
+  max = mk_binary_op_ugen Max
+  {-# INLINE max #-}
 
 instance Enum UGen where
   toEnum = constant . fromIntegral
@@ -475,7 +479,13 @@ instance Audible UGen where
 
 instance UnaryOp UGen where
   midiCPS = mk_unary_op_ugen MIDICPS
+  {-# INLINE midiCPS #-}
   cpsMIDI = mk_unary_op_ugen CPSMIDI
+  {-# INLINE cpsMIDI #-}
+  midiRatio = mk_unary_op_ugen MIDIRatio
+  {-# INLINE midiRatio #-}
+  ratioMIDI = mk_unary_op_ugen RatioMIDI
+  {-# INLINE ratioMIDI #-}
 
 instance BinaryOp UGen where
   clip2 = mk_binary_op_ugen Clip2
@@ -595,6 +605,27 @@ normalize n_outputs f inputs = go inputs
     {-# INLINE go #-}
 {-# INLINABLE normalize #-}
 
+-- | Inner function used in UGen constructor functions.
+mkUGenFn :: Int
+         -> (forall s. DAG s -> ST s UGenId)
+         -> Special
+         -> String
+         -> (forall s. [NodeId] -> DAG s -> ST s Rate)
+         -> [NodeId]
+         -> ReaderT (DAG g) (ST g) NodeId
+mkUGenFn n_output uid_fn special name rate_fn inputs = do
+  dag <- ask
+  rate <- lift (rate_fn inputs dag)
+  uid <- lift (uid_fn dag)
+  let outputs = replicate n_output rate
+  hashconsU (G_Node_U {g_node_u_rate=rate
+                      ,g_node_u_name=name
+                      ,g_node_u_inputs=inputs
+                      ,g_node_u_outputs=outputs
+                      ,g_node_u_special=special
+                      ,g_node_u_ugenid=uid})
+{-# INLINE mkUGenFn #-}
+
 -- | Generalized 'UGen' constructor, for defining binding functions for
 -- UGens.
 mkUGen :: Int
@@ -613,17 +644,7 @@ mkUGen :: Int
        -- ^ Input arguments.
        -> UGen
 mkUGen n_output uid_fn special name rate_fn input_fn input_ugens =
-  G (do let f inputs = do
-              dag <- ask
-              rate <- lift (rate_fn inputs dag)
-              uid <- lift (uid_fn dag)
-              let outputs = replicate n_output rate
-              hashconsU (G_Node_U {g_node_u_rate=rate
-                                  ,g_node_u_name=name
-                                  ,g_node_u_inputs=inputs
-                                  ,g_node_u_outputs=outputs
-                                  ,g_node_u_special=special
-                                  ,g_node_u_ugenid=uid})
+  G (do let f = mkUGenFn n_output uid_fn special name rate_fn
         input_mce_nids <- input_fn input_ugens
         normalize n_output f input_mce_nids)
 {-# INLINABLE mkUGen #-}
@@ -643,17 +664,7 @@ mkSimpleUGen :: Int
              -- ^ Input arguments.
              -> UGen
 mkSimpleUGen n_output uid_fn special name rate_fn input_ugens =
-  G (do let f inputs = do
-              dag <- ask
-              rate <- lift (rate_fn inputs dag)
-              uid <- lift (uid_fn dag)
-              let outputs = replicate n_output rate
-              hashconsU (G_Node_U {g_node_u_rate=rate
-                                  ,g_node_u_name=name
-                                  ,g_node_u_inputs=inputs
-                                  ,g_node_u_outputs=outputs
-                                  ,g_node_u_special=special
-                                  ,g_node_u_ugenid=uid})
+  G (do let f = mkUGenFn n_output uid_fn special name rate_fn
         input_mce_nids <- mapM unG input_ugens
         normalize n_output f input_mce_nids)
 {-# INLINABLE mkSimpleUGen #-}
@@ -675,17 +686,7 @@ mkChannelsArrayUGen :: Int
                     -- ^ Input arguments.
                     -> UGen
 mkChannelsArrayUGen n_output uid_fn special name rate_fn input_ugens =
-  G (do let f inputs = do
-              dag <- ask
-              rate <- lift (rate_fn inputs dag)
-              uid <- lift (uid_fn dag)
-              let outputs = replicate n_output rate
-              hashconsU (G_Node_U {g_node_u_rate=rate
-                                  ,g_node_u_name=name
-                                  ,g_node_u_inputs=inputs
-                                  ,g_node_u_outputs=outputs
-                                  ,g_node_u_special=special
-                                  ,g_node_u_ugenid=uid})
+  G (do let f = mkUGenFn n_output uid_fn special name rate_fn
         input_mce_nids <- unwrap input_ugens
         normalize n_output f input_mce_nids)
 {-# INLINABLE mkChannelsArrayUGen #-}
@@ -705,20 +706,16 @@ mkDemandUGen :: a
              -- ^ Input arguments.
              -> UGen
 mkDemandUGen _n_output uid_fn special name rate_fn input_ugens =
-  G (do n_output <- mce_degree <$> unG (last input_ugens)
-        let f inputs = do
-              dag <- ask
-              rate <- lift (rate_fn inputs dag)
-              uid <- lift (uid_fn dag)
-              let outputs = replicate n_output rate
-              hashconsU (G_Node_U {g_node_u_rate=rate
-                                  ,g_node_u_name=name
-                                  ,g_node_u_inputs=inputs
-                                  ,g_node_u_outputs=outputs
-                                  ,g_node_u_special=special
-                                  ,g_node_u_ugenid=uid})
-        input_mce_nids <- unwrap input_ugens
-        normalize n_output f input_mce_nids)
+  -- Manually traversing input ugens to get mce degree from the last
+  -- element.
+  G (do let g xs =
+              case xs of
+                []   -> return (0,[])
+                [y]  -> unG y >>= \n -> return (mce_degree n,mce_list n)
+                y:ys -> unG y >>= \n -> fmap (fmap (n:)) (g ys)
+        (n_output, input_mce_ids) <- g input_ugens
+        let f = mkUGenFn n_output uid_fn special name rate_fn
+        normalize n_output f input_mce_ids)
 {-# INLINABLE mkDemandUGen #-}
 
 -- mk_simple_ugen :: String -> Rate -> [UGen] -> UGen
@@ -926,7 +923,7 @@ rate_to_k_type rate =
     DR -> error "control: DR control"
 {-# INLINE rate_to_k_type #-}
 
-unwrap :: [G (MCE a)] -> ReaderT (DAG s) (ST s) [(MCE a)]
+unwrap :: [G (MCE a)] -> ReaderT (DAG s) (ST s) [MCE a]
 unwrap is =
   case is of
     []   -> return []
