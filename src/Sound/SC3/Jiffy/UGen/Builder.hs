@@ -741,7 +741,7 @@ mkChannelsArrayUGen :: Int
                     -> UGen
 mkChannelsArrayUGen n_output uid_fn special name rate_fn input_ugens =
   G (do let f = mkUGenFn n_output uid_fn special name rate_fn
-        input_mce_nids <- unwrap input_ugens
+        input_mce_nids <- unChannelsArray input_ugens
         normalize n_output f input_mce_nids)
 {-# INLINABLE mkChannelsArrayUGen #-}
 
@@ -870,13 +870,14 @@ maximum_rate is nids dag = do
 {-# INLINE maximum_rate #-}
 
 -- | Input unwrapper for channels array UGens.
-unwrap :: [G (MCE NodeId)] -> ReaderT (DAG s) (ST s) [MCE NodeId]
-unwrap is =
+unChannelsArray :: [G (MCE NodeId)]
+                -> ReaderT (DAG s) (ST s) [MCE NodeId]
+unChannelsArray is =
   case is of
     []   -> return []
     j:[] -> mce_list <$> runG j
-    j:js -> (:) <$> runG j <*> unwrap js
-{-# INLINE unwrap #-}
+    j:js -> (:) <$> runG j <*> unChannelsArray js
+{-# INLINE unChannelsArray #-}
 
 -- | Input unwrapper for demand UGen.
 undemand :: [G (MCE NodeId)]
