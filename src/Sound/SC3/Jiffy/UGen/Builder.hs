@@ -9,7 +9,7 @@
 -- with hsc3 package.  The construction computation supports implicit
 -- and explicit sharing in the UGen graph construction DSL.  The
 -- implementation is heavily inspired from the presentation given by
--- Oleg Kiselyov, found in below URL:
+-- Oleg Kiselyov, found in:
 --
 --    <http://okmij.org/ftp/tagless-final/sharing/index.html>
 --
@@ -231,15 +231,21 @@ data NodeId
   | NodeId_P {-# UNPACK #-} !Int {-# UNPACK #-} !Int
   -- ^ Proxy node, which is a UGen node with optional 'Int' value to
   -- keep track of output index for multi-channeled node.
+  | NConstant {-# UNPACK #-} !Sample
+  -- ^ Constant value not yet stored in DAG. This constructor is used
+  -- for constant folding in unary and binary operator functions.
   deriving (Eq, Ord, Show)
 
 instance Hashable NodeId where
+  -- Not marking each constructor with optional constructor index value,
+  -- because DAG separates BiMap fields for each constructor.
   hashWithSalt s n =
-    s `hashWithSalt` case n of
-                       NodeId_C k -> k
-                       NodeId_K k t -> k `hashWithSalt` t
-                       NodeId_U k -> k
-                       NodeId_P k p -> k `hashWithSalt` p
+    case n of
+      NodeId_C k -> s `hashWithSalt` k
+      NodeId_K k t -> s `hashWithSalt` k `hashWithSalt` t
+      NodeId_U k -> s `hashWithSalt` k
+      NodeId_P k p -> s `hashWithSalt` k `hashWithSalt` p
+      NConstant v -> s `hashWithSalt` v
   {-# INLINE hashWithSalt #-}
 
 --
@@ -270,6 +276,20 @@ instance Functor MCE where
       MCEU x  -> MCEU (f x)
       MCEV xs -> MCEV (fmap (fmap f) xs)
   {-# INLINE fmap #-}
+
+instance Foldable MCE where
+  foldMap f m =
+    case m of
+      MCEU a  -> f a
+      MCEV as -> foldMap (foldMap f) as
+  {-# INLINE foldMap #-}
+
+instance Traversable MCE where
+  traverse f m =
+    case m of
+      MCEU a  -> fmap MCEU (f a)
+      MCEV as -> fmap MCEV (traverse (traverse f) as)
+  {-# INLINE traverse #-}
 
 instance Applicative MCE where
   pure = MCEU
@@ -329,6 +349,7 @@ nid_value nid =
     NodeId_K i _ -> i
     NodeId_U i -> i
     NodeId_P i _ -> i
+    NConstant v -> error ("nid_value: constant " ++ show v)
 {-# INLINABLE nid_value #-}
 
 lookup_g_node :: NodeId -> DAG s -> ST s G_Node
@@ -338,6 +359,7 @@ lookup_g_node nid dag =
     NodeId_K k _ -> lookup_val k (kmap dag)
     NodeId_U k -> lookup_val k (umap dag)
     NodeId_P k _ -> lookup_val k (umap dag)
+    NConstant v -> error ("lookup_g_node: constant " ++ show v)
 {-# INLINABLE lookup_g_node #-}
 
 nid_to_port :: NodeId -> From_Port
@@ -347,6 +369,7 @@ nid_to_port nid =
     NodeId_K k t -> From_Port_K k t
     NodeId_U k -> From_Port_U k Nothing
     NodeId_P k p -> From_Port_U k (Just p)
+    NConstant v -> error ("nid_to_port: constant " ++ show v)
 {-# INLINABLE nid_to_port #-}
 
 g_node_rate :: G_Node -> Rate
@@ -373,7 +396,7 @@ hashcons con prj x = do
                         let count' = count + 1
                         insert_at x count (prj dag)
                         count' `seq` writeSTRef (hashcount dag) count'
-                        return (con count))
+                        return $! con count)
     Just k  -> return (con k)
 {-# INLINABLE hashcons #-}
 
@@ -399,17 +422,17 @@ type UGen = G (MCE NodeId)
 instance Num UGen where
   fromInteger = constant . fromInteger
   {-# INLINE fromInteger #-}
-  (+) = mk_binary_op_ugen Add
+  (+) = binary_op_ugen_with (+) Add
   {-# INLINE (+) #-}
-  (*) = mk_binary_op_ugen Mul
+  (*) = binary_op_ugen_with (*) Mul
   {-# INLINE (*) #-}
-  (-) = mk_binary_op_ugen Sub
+  (-) = binary_op_ugen_with (-) Sub
   {-# INLINE (-) #-}
-  abs = mk_unary_op_ugen Abs
+  abs = unary_op_ugen_with abs Abs
   {-# INLINE abs #-}
-  signum = mk_unary_op_ugen Sign
+  signum = unary_op_ugen_with signum Sign
   {-# INLINE signum #-}
-  negate = mk_unary_op_ugen Neg
+  negate = unary_op_ugen_with negate Neg
   {-# INLINE negate #-}
 
 instance Fractional UGen where
@@ -478,17 +501,19 @@ instance Audible UGen where
     in  sendMessage (withCM dr sn)
 
 instance UnaryOp UGen where
-  midiCPS = mk_unary_op_ugen MIDICPS
+  cubed = unary_op_ugen_with cubed Cubed
+  {-# INLINE cubed #-}
+  midiCPS = unary_op_ugen_with midiCPS MIDICPS
   {-# INLINE midiCPS #-}
-  cpsMIDI = mk_unary_op_ugen CPSMIDI
+  cpsMIDI = unary_op_ugen_with cpsMIDI CPSMIDI
   {-# INLINE cpsMIDI #-}
-  midiRatio = mk_unary_op_ugen MIDIRatio
+  midiRatio = unary_op_ugen_with midiRatio MIDIRatio
   {-# INLINE midiRatio #-}
-  ratioMIDI = mk_unary_op_ugen RatioMIDI
+  ratioMIDI = unary_op_ugen_with ratioMIDI RatioMIDI
   {-# INLINE ratioMIDI #-}
 
 instance BinaryOp UGen where
-  clip2 = mk_binary_op_ugen Clip2
+  clip2 = binary_op_ugen_with clip2 Clip2
 
 --
 -- Converting to U_Graph and Graphdef
@@ -501,7 +526,7 @@ ugen_to_graphdef name g =
 
 ugen_to_graph :: UGen -> U_Graph
 ugen_to_graph g =
-  case runG g of
+  case ugen_to_graph' g of
     (_, (count, cm, km, um)) ->
       let ug = U_Graph {ug_next_id=count
                        ,ug_constants=cm
@@ -509,8 +534,8 @@ ugen_to_graph g =
                        ,ug_ugens=um}
       in  ug `seq` ug_add_implicit ug
 
-runG :: G a -> (a, (Int, [U_Node], [U_Node], [U_Node]))
-runG (G m) =
+ugen_to_graph' :: G a -> (a, (Int, [U_Node], [U_Node], [U_Node]))
+ugen_to_graph' (G m) =
   runST
     (do dag <- emptyDAG
         r <- runReaderT m dag
@@ -522,6 +547,7 @@ runG (G m) =
         um <- as_u_nodes umap
         count <- readSTRef (hashcount dag)
         return (r, (count, cm, km, um)))
+{-# INLINE ugen_to_graph' #-}
 
 gnode_to_unode :: Int -> G_Node -> U_Node
 gnode_to_unode nid node =
@@ -551,9 +577,37 @@ gnode_to_unode nid node =
 -- Constant, control, and UGen constructors
 --
 
+-- Note [Constant foldings]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~
+--
+-- We want to perform computation on constant value with Haskell
+-- function, to reduce the number of UGen in synthdef graph. And at the
+-- same time, want to prevent inserting unused constant values to DAG.
+--
+-- To meet these needs, constant nodes are represented with 'NConstant'
+-- and 'NodeId_C'. 'NConstant' represents the constant value itself, and
+-- 'NodeId_C' represents the node id in DAG.
+--
+-- In unary and binary operator functions, when all inputs were
+-- 'NConstant' values, corresponding haskell function performs inplace
+-- computation with the given arguments.  Non-operator UGen function
+-- calls 'runG' function in its body, to hashcons the constant
+-- values. At this point 'NConstnat' get converted to 'NodeId_C' in DAG.
+
+-- | Unwrap the action inside 'G'. This function will store
+-- 'NConstant' values to 'DAG' when found, and return 'NodeId_C'
+-- value instead of the original 'NConstant'.
+runG :: G (MCE NodeId) -> ReaderT (DAG s) (ST s) (MCE NodeId)
+runG g =
+  let f n = case n of
+              NConstant v -> hashconsC (G_Node_C v)
+              _           -> return n
+  in  unG g >>= mapM f
+{-# INLINE runG #-}
+
 -- | Create constant value node.
 constant :: Sample -> UGen
-constant v = G (fmap MCEU (hashconsC (G_Node_C v)))
+constant v = G (return $! MCEU (NConstant v))
 {-# INLINE constant #-}
 
 -- | Create control value node.
@@ -600,8 +654,8 @@ normalize n_outputs f inputs = go inputs
            if n_outputs > 1
               then let mk_nodeid_p = MCEU . NodeId_P (nid_value nid)
                        nids = map mk_nodeid_p [0..(n_outputs-1)]
-                   in  return (MCEV nids)
-              else return (MCEU nid)
+                   in  return $! MCEV nids
+              else return $! MCEU nid
     {-# INLINE go #-}
 {-# INLINABLE normalize #-}
 
@@ -665,7 +719,7 @@ mkSimpleUGen :: Int
              -> UGen
 mkSimpleUGen n_output uid_fn special name rate_fn input_ugens =
   G (do let f = mkUGenFn n_output uid_fn special name rate_fn
-        input_mce_nids <- mapM unG input_ugens
+        input_mce_nids <- mapM runG input_ugens
         normalize n_output f input_mce_nids)
 {-# INLINABLE mkSimpleUGen #-}
 
@@ -706,56 +760,74 @@ mkDemandUGen :: a
              -- ^ Input arguments.
              -> UGen
 mkDemandUGen _n_output uid_fn special name rate_fn input_ugens =
-  -- Manually traversing input ugens to get mce degree from the last
-  -- element.
-  G (do let g xs =
-              case xs of
-                []   -> return (0,[])
-                [y]  -> unG y >>= \n -> return (mce_degree n,mce_list n)
-                y:ys -> unG y >>= \n -> fmap (fmap (n:)) (g ys)
-        (n_output, input_mce_ids) <- g input_ugens
+  -- Traversing input ugens first, to get mce degree from the last
+  -- element, for `n_output'.
+  G (do (n_output, input_mce_ids) <- undemand input_ugens
         let f = mkUGenFn n_output uid_fn special name rate_fn
         normalize n_output f input_mce_ids)
 {-# INLINABLE mkDemandUGen #-}
 
--- mk_simple_ugen :: String -> Rate -> [UGen] -> UGen
--- mk_simple_ugen name rate = mkUGen 1 noId spec0 name r_fn i_fn
---   where
---     r_fn = const_rate rate
---     i_fn = mapM unG
--- {-# INLINE mk_simple_ugen #-}
+-- | Make a unary operator UGen, with constant folding function applied
+-- to 'NConstant' input values.
+unary_op_ugen_with :: (Sample -> Sample) -> Unary -> UGen -> UGen
+unary_op_ugen_with fn op a =
+  G (do let f inputs =
+              case inputs of
+                [NConstant v] -> return $! NConstant (fn v)
+                [nid0] -> do
+                  dag <- ask
+                  n0 <- lift (lookup_g_node nid0 dag)
+                  let rate = g_node_rate n0
+                      special = Special (fromEnum op)
+                  hashconsU (G_Node_U {g_node_u_rate=rate
+                                      ,g_node_u_name="UnaryOpUGen"
+                                      ,g_node_u_inputs=inputs
+                                      ,g_node_u_outputs=[rate]
+                                      ,g_node_u_special=special
+                                      ,g_node_u_ugenid=NoId})
+                _ -> error "unary_op_ugen_with: bad input"
+        input_mce_nid <- unG a
+        normalize 1 f [input_mce_nid])
+{-# INLINEABLE unary_op_ugen_with #-}
 
--- mk_simple_id_ugen :: String -> Rate -> [UGen] -> UGen
--- mk_simple_id_ugen name rate = mkUGen 1 hashUId spec0 name r_fn i_fn
---   where
---     r_fn = const_rate rate
---     i_fn = simple_inputs
--- {-# INLINABLE mk_simple_id_ugen #-}
-
--- mk_filter_ugen :: Int -> (forall s . DAG s -> ST s UGenId)
---                -> Special -> String -> [UGen] -> UGen
--- mk_filter_ugen n_output u_fn special name input_ugens =
---   mkUGen n_output u_fn special name r_fn i_fn input_ugens
---   where
---     r_fn = maximum_rate [0..(length input_ugens - 1)]
---     i_fn = simple_inputs
--- {-# INLINABLE mk_filter_ugen #-}
-
--- mk_simple_filter_ugen :: String -> [UGen] -> UGen
--- mk_simple_filter_ugen name = mk_filter_ugen 1 noId spec0 name
--- {-# INLINABLE mk_simple_filter_ugen #-}
-
--- mk_filter_id_ugen :: String -> [UGen] -> UGen
--- mk_filter_id_ugen = mk_filter_ugen 1 hashUId spec0
--- {-# INLINABLE mk_filter_id_ugen #-}
-
-mk_unary_op_ugen :: Unary -> UGen -> UGen
-mk_unary_op_ugen op a = mkSimpleUGen 1 noId special name r_fn [a]
-  where
-    special = Special (fromEnum op)
-    name = "UnaryOpUGen"
-    r_fn = get_rate_at 0
-{-# INLINABLE mk_unary_op_ugen #-}
+-- | Make a binary operator UGen, with constant folding function applied
+-- to 'NConstant' input values.
+binary_op_ugen_with :: (Sample -> Sample -> Sample)
+                    -> Binary
+                    -> UGen -> UGen -> UGen
+binary_op_ugen_with fn op a b =
+  G (do let f inputs =
+              case inputs of
+                [NConstant v0, NConstant v1] ->
+                  return $! NConstant (fn v0 v1)
+                [NConstant v0, nid1] -> do
+                  dag <- ask
+                  nid0' <- hashconsC (G_Node_C v0)
+                  n1 <- lift (lookup_g_node nid1 dag)
+                  mkU (max IR (g_node_rate n1)) [nid0',nid1]
+                [nid0, NConstant v1] -> do
+                  dag <- ask
+                  n0 <- lift (lookup_g_node nid0 dag)
+                  nid1' <- hashconsC (G_Node_C v1)
+                  mkU (max (g_node_rate n0) IR) [nid0,nid1']
+                [nid0, nid1] -> do
+                  dag <- ask
+                  n0 <- lift (lookup_g_node nid0 dag)
+                  n1 <- lift (lookup_g_node nid1 dag)
+                  mkU (max (g_node_rate n0) (g_node_rate n1)) inputs
+                _ -> error "binary_op_ugen_with: bad inputs"
+            mkU rate inputs =
+              hashconsU (G_Node_U {g_node_u_rate=rate
+                                  ,g_node_u_name="BinaryOpUGen"
+                                  ,g_node_u_inputs=inputs
+                                  ,g_node_u_outputs=[rate]
+                                  ,g_node_u_special=special
+                                  ,g_node_u_ugenid=NoId})
+            special = Special (fromEnum op)
+        a' <- unG a
+        b' <- unG b
+        normalize 1 f [a',b'])
+{-# INLINE binary_op_ugen_with #-}
 
 mk_binary_op_ugen :: Binary -> UGen -> UGen -> UGen
 mk_binary_op_ugen op a b = mkSimpleUGen 1 noId special name r_fn [a,b]
@@ -785,7 +857,7 @@ const_rate r _ _ = return r
 get_rate_at :: Int -> [NodeId] -> DAG s -> ST s Rate
 get_rate_at i nids dag = do
   n <- lookup_g_node (nids !! i) dag
-  return (g_node_rate n)
+  return $! g_node_rate n
 {-# INLINE get_rate_at #-}
 
 -- | Get maximum rate from selected node ids by input argument indices.
@@ -796,6 +868,25 @@ maximum_rate is nids dag = do
         return $! max current (g_node_rate node)
   foldM f IR is
 {-# INLINE maximum_rate #-}
+
+-- | Input unwrapper for channels array UGens.
+unwrap :: [G (MCE NodeId)] -> ReaderT (DAG s) (ST s) [MCE NodeId]
+unwrap is =
+  case is of
+    []   -> return []
+    j:[] -> mce_list <$> runG j
+    j:js -> (:) <$> runG j <*> unwrap js
+{-# INLINE unwrap #-}
+
+-- | Input unwrapper for demand UGen.
+undemand :: [G (MCE NodeId)]
+         -> ReaderT (DAG s) (ST s) (Int, [MCE NodeId])
+undemand xs =
+  case xs of
+    []   -> return (0,[])
+    [y]  -> runG y >>= \n -> return (mce_degree n,mce_list n)
+    y:ys -> runG y >>= \n -> fmap (fmap (n:)) (undemand ys)
+{-# INLINE undemand #-}
 
 --
 -- Composite and auxiliary UGen related functions
@@ -922,11 +1013,3 @@ rate_to_k_type rate =
     AR -> K_AR
     DR -> error "control: DR control"
 {-# INLINE rate_to_k_type #-}
-
-unwrap :: [G (MCE a)] -> ReaderT (DAG s) (ST s) [MCE a]
-unwrap is =
-  case is of
-    []   -> return []
-    j:[] -> mce_list <$> unG j
-    j:js -> (:) <$> unG j <*> unwrap js
-{-# INLINE unwrap #-}

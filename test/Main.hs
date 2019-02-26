@@ -83,6 +83,12 @@ controls_graph = do
            in  S.out 0 (S.mce [s,s])
   same_graphdef "controls_with_various_rates" j0 h0
 
+unary_op_graph :: Spec
+unary_op_graph =
+  let j0 = saw AR (S.midiCPS 67)
+      h0 = S.saw AR (S.midiCPS 67)
+  in  same_graphdef "constant_folding_with_unary_op" j0 h0
+
 main :: IO ()
 main =
   hspec
@@ -93,4 +99,5 @@ main =
             nondet_graph
             mrg_graph
             enum_graph
-            controls_graph))
+            controls_graph
+            unary_op_graph))
