@@ -1,8 +1,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
-module Sound.SC3.Jiffy.UGen.DB where
+module Sound.SC3.UGen.Jiffy.DB where
 
 -- Internal
-import Sound.SC3.Jiffy.UGen.TH (ugenDecsQ)
+import Sound.SC3.UGen.Jiffy.TH (ugenDecsQ)
 
 $(ugenDecsQ)

@@ -10,9 +10,8 @@ import qualified Sound.SC3.UGen.Graph as SG
 import qualified Sound.SC3.Server.Graphdef as SSG
 
 -- Internal
-import Sound.SC3.Jiffy.Encode
-import Sound.SC3.Jiffy.UGen.Builder
-import Sound.SC3.Jiffy.UGen.DB
+import Sound.SC3.Jiffy.Encode (encode_graphdef)
+import Sound.SC3.UGen.Jiffy
 
 same_graphdef :: String -> UGen -> S.UGen -> Spec
 same_graphdef name j h =

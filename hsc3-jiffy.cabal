@@ -15,11 +15,15 @@ cabal-version:       >= 1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Sound.SC3.Jiffy.UGen.Builder
-                       Sound.SC3.Jiffy.UGen.DB
+  exposed-modules:     Sound.SC3.Jiffy
                        Sound.SC3.Jiffy.Encode
-  other-modules:       Sound.SC3.Jiffy.UGen.TH
-                       Sound.SC3.Jiffy.UGen.Orphan
+                       Sound.SC3.UGen.Jiffy
+                       Sound.SC3.UGen.Jiffy.Builder
+                       Sound.SC3.UGen.Jiffy.Composite
+                       Sound.SC3.UGen.Jiffy.DB
+  other-modules:       Sound.SC3.Jiffy.Orphan
+                       Sound.SC3.UGen.Jiffy.Builder.Internal
+                       Sound.SC3.UGen.Jiffy.TH
   build-depends:       base >= 4.12 && < 5
                      , bytestring
                      , hashable

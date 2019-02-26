@@ -3,18 +3,18 @@
 {-# LANGUAGE RecordWildCards #-}
 -- -----------------------------------------------------------------------
 -- |
--- Implicit and explicit sharing with hsc3 synthdef.
+-- Implicit and explicit sharing with hsc3 synthdef.  This module
+-- contains functions to construct SuperCollider synthdef with hsc3
+-- package.  The construction computation supports implicit and explicit
+-- sharing in the UGen graph construction DSL.
 --
--- This module contains functions to construct SuperCollider synthdef
--- with hsc3 package.  The construction computation supports implicit
--- and explicit sharing in the UGen graph construction DSL.  The
--- implementation is heavily inspired from the presentation given by
+-- The implementation is heavily inspired from the presentation given by
 -- Oleg Kiselyov, found in:
 --
 --    <http://okmij.org/ftp/tagless-final/sharing/index.html>
 --
 
-module Sound.SC3.Jiffy.UGen.Builder
+module Sound.SC3.UGen.Jiffy.Builder
   ( UGen
   , ugen_to_graph
   , ugen_to_graphdef
@@ -27,7 +27,6 @@ module Sound.SC3.Jiffy.UGen.Builder
   , mce2
   , mceChannel
   , dup
-  , mix
 
   , mkUGen
   , mkSimpleUGen
@@ -48,16 +47,13 @@ module Sound.SC3.Jiffy.UGen.Builder
 -- base
 import Control.Monad (foldM)
 import Control.Monad.ST (ST, runST)
+import Data.Foldable (toList)
 import Data.Function (on)
 import Data.List (intercalate, sortBy, transpose)
-import Data.STRef (STRef, newSTRef, readSTRef, writeSTRef)
-
--- hashable
-import Data.Hashable (Hashable(..))
+import Data.STRef (readSTRef)
 
 -- hashtables
 import qualified Data.HashTable.Class as HC
-import qualified Data.HashTable.ST.Basic as HT
 
 -- hosc
 import Sound.OSC (sendMessage)
@@ -65,15 +61,14 @@ import Sound.OSC (sendMessage)
 -- hsc3
 import Sound.SC3
   ( Audible(..), Binary(..), BinaryOp(..), Rate(..), K_Type(..)
-  , Output, Sample, Special(..), UGenId(..), Unary(..), UnaryOp(..)
+  , Sample, Special(..), UGenId(..), Unary(..), UnaryOp(..)
   , Envelope(..), envelope_sc3_array )
 import Sound.SC3.Server.Command.Generic (withCM)
 import Sound.SC3.Server.Command.Plain (d_recv_bytes, s_new)
 import Sound.SC3.Server.Graphdef (Graphdef(..))
 import Sound.SC3.Server.Graphdef.Graph (graph_to_graphdef)
 import Sound.SC3.UGen.Graph
-  ( U_Graph(..), U_Node(..), From_Port(..)
-  , ug_add_implicit, {- ug_pv_validate, -} )
+  ( U_Graph(..), U_Node(..), ug_add_implicit, {- ug_pv_validate, -} )
 import qualified Sound.SC3 as SC3
 import qualified Sound.SC3.UGen.Graph as SC3UG
 
@@ -83,7 +78,8 @@ import Control.Monad.Trans.Reader (ReaderT(..), ask)
 
 -- Internal
 import Sound.SC3.Jiffy.Encode
-import Sound.SC3.Jiffy.UGen.Orphan ()
+import Sound.SC3.Jiffy.Orphan ()
+import Sound.SC3.UGen.Jiffy.Builder.Internal
 
 --
 -- Wrapper newtype
@@ -107,310 +103,6 @@ instance Monad G where
   {-# INLINE return #-}
   G m >>= k = G (m >>= unG . k)
   {-# INLINE (>>=) #-}
-
--- | Data type of directed acyclic graph to construct synthdef.  The
--- 'BiMap's are separated between constants, control nodes, and ugen
--- nodes, to keep the hash table small. But the 'Int' value for
--- bookkeeping lookup-key of 'BiMap's is shared.
-data DAG s =
-  DAG { hashcount :: {-# UNPACK #-} !(STRef s Int)
-      , cmap :: {-# UNPACK #-} !(BiMap s G_Node)
-      , kmap :: {-# UNPACK #-} !(BiMap s G_Node)
-      , umap :: {-# UNPACK #-} !(BiMap s G_Node) }
-
-instance Show (DAG s) where
-  show _ = "<DAG>"
-
--- | Make a new empty 'DAG' in 'ST' monad, with heuristically selected
--- initial sizes for internal hash tables.
-emptyDAG :: ST s (DAG s)
-emptyDAG = DAG <$> newSTRef 0 <*> empty 16 <*> empty 8 <*> empty 128
-
---
--- Simple bidirectional map
---
-
--- | Bidirectional map data structure with 'Int' key.
-data BiMap s a =
-  BiMap {-# UNPACK #-} !(HT.HashTable s a Int)
-        {-# UNPACK #-} !(HT.HashTable s Int a)
-
--- | Create empty 'BiMap' with initial size.
-empty :: Int -- ^ Initial size of hash tables.
-       -> ST s (BiMap s a)
-empty n = BiMap <$> HC.newSized n <*> HC.newSized n
-{-# INLINABLE empty #-}
-
--- | Lookup 'BiMap' with value to find a 'Int' key.
-lookup_key :: (Hashable a, Eq a) => a -> BiMap s a -> ST s (Maybe Int)
-lookup_key v (BiMap m _) = HC.lookup m v
-{-# INLINABLE lookup_key #-}
-{-# SPECIALIZE lookup_key
-  :: G_Node -> BiMap s G_Node -> ST s (Maybe Int) #-}
-
--- | Lookup 'Bimap' with 'Int' key to find a value.
-lookup_val :: Int -> BiMap s a -> ST s a
-lookup_val k (BiMap _ m) = do
-  ret <- HC.lookup m k
-  case ret of
-    Just v -> return v
-    Nothing -> error "lookup_val: key does not exist."
-{-# INLINABLE lookup_val #-}
-
--- | Insert new element to 'Bimap' with given value and key.
-insert_at :: (Hashable a, Eq a) => a -> Int -> BiMap s a -> ST s ()
-insert_at v k (BiMap vt kt) = HC.insert vt v k >> HC.insert kt k v
-{-# INLINABLE insert_at #-}
-{-# SPECIALIZE insert_at
-  :: G_Node -> Int -> BiMap s G_Node -> ST s () #-}
-
---
--- Node and node ID
---
-
--- | Data type to represent UGen node in a 'DAG' graph. This data is
--- intended to be converted to 'U_Node' with key values from current
--- graph used for building synthdef. All fields in all constructors are
--- strict, and some of them are unpacked.
-data G_Node
-  = G_Node_C { g_node_c_value :: {-# UNPACK #-} !Sample }
-  -- ^ Constant node, for 'U_Node_C'.
-  | G_Node_K { g_node_k_rate :: !Rate
-             , g_node_k_index :: !(Maybe Int)
-             , g_node_k_name :: !String
-             , g_node_k_default :: {-# UNPACK #-} !Sample
-             , g_node_k_type :: !K_Type }
-  -- ^ Control node, for 'U_Node_K'.
-  | G_Node_U { g_node_u_rate :: !Rate
-             , g_node_u_name :: !String
-             , g_node_u_inputs :: ![NodeId]
-             , g_node_u_outputs :: ![Output]
-             , g_node_u_special :: {-# UNPACK #-} !Special
-             , g_node_u_ugenid :: !UGenId }
-  -- ^ UGen node, for 'U_Node_U'.
-  --
-  -- Note that there is no constructor for proxy node because proxy
-  -- nodes are not stored in synthdef graph. Instead, output proxies are
-  -- expressed with 'NodeId' data type.
-  deriving (Eq, Show)
-
-instance Hashable G_Node where
-  hashWithSalt s n =
-    case n of
-      G_Node_C {..} -> s `hashWithSalt`
-                       ci `hashWithSalt`
-                       g_node_c_value
-      G_Node_K {..} -> s `hashWithSalt`
-                       ck `hashWithSalt`
-                       g_node_k_rate `hashWithSalt`
-                       g_node_k_index `hashWithSalt`
-                       g_node_k_name `hashWithSalt`
-                       g_node_k_default `hashWithSalt`
-                       g_node_k_type
-      G_Node_U {..} -> s `hashWithSalt`
-                       cu `hashWithSalt`
-                       g_node_u_rate `hashWithSalt`
-                       g_node_u_name `hashWithSalt`
-                       g_node_u_inputs `hashWithSalt`
-                       g_node_u_outputs `hashWithSalt`
-                       g_node_u_special `hashWithSalt`
-                       g_node_u_ugenid
-    where
-      ci, ck, cu :: Int
-      (ci,ck,cu) = (0,1,2)
-  {-# INLINE hashWithSalt #-}
-
--- | Data type to represent UGen graph node id for inputs and outputs.
-data NodeId
-  = NodeId_C {-# UNPACK #-} !Int
-  -- ^ Constant node.
-  | NodeId_K {-# UNPACK #-} !Int !K_Type
-  -- ^ Control node.
-  | NodeId_U {-# UNPACK #-} !Int
-  -- ^ UGen node.
-  | NodeId_P {-# UNPACK #-} !Int {-# UNPACK #-} !Int
-  -- ^ Proxy node, which is a UGen node with optional 'Int' value to
-  -- keep track of output index for multi-channeled node.
-  | NConstant {-# UNPACK #-} !Sample
-  -- ^ Constant value not yet stored in DAG. This constructor is used
-  -- for constant folding in unary and binary operator functions.
-  deriving (Eq, Ord, Show)
-
-instance Hashable NodeId where
-  -- Not marking each constructor with optional constructor index value,
-  -- because DAG separates BiMap fields for each constructor.
-  hashWithSalt s n =
-    case n of
-      NodeId_C k -> s `hashWithSalt` k
-      NodeId_K k t -> s `hashWithSalt` k `hashWithSalt` t
-      NodeId_U k -> s `hashWithSalt` k
-      NodeId_P k p -> s `hashWithSalt` k `hashWithSalt` p
-      NConstant v -> s `hashWithSalt` v
-  {-# INLINE hashWithSalt #-}
-
---
--- MCE, recursivly nested
---
-
--- Note [Recursively nested MCE vectors]
--- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
---
--- 'Sound.SC3.UGen.MCE.MCE' data type cannot express nested list
--- (a.k.a. Rose tree), so 'Sound.SC3.UGen.Type.UGen' data type has
--- recursive constructor 'MCE_U', to express nested MCE values such as:
---
---    MCE_U (MCE_Vector [MCE_U (MCE_Vector [...]), ...])
---
--- The 'MCE' data type defined in this module has recursive structure to
--- express such kind of input nodes.
-
--- | Recursive data type for multi channel expansion.
-data MCE a
-  = MCEU !a
-  | MCEV ![MCE a]
-  deriving (Eq, Ord, Show)
-
-instance Functor MCE where
-  fmap f m =
-    case m of
-      MCEU x  -> MCEU (f x)
-      MCEV xs -> MCEV (fmap (fmap f) xs)
-  {-# INLINE fmap #-}
-
-instance Foldable MCE where
-  foldMap f m =
-    case m of
-      MCEU a  -> f a
-      MCEV as -> foldMap (foldMap f) as
-  {-# INLINE foldMap #-}
-
-instance Traversable MCE where
-  traverse f m =
-    case m of
-      MCEU a  -> fmap MCEU (f a)
-      MCEV as -> fmap MCEV (traverse (traverse f) as)
-  {-# INLINE traverse #-}
-
-instance Applicative MCE where
-  pure = MCEU
-  {-# INLINE pure #-}
-  f <*> x =
-    case f of
-      MCEU g  | MCEU y  <- x -> MCEU (g y)
-              | MCEV ys <- x -> MCEV (fmap (fmap g) ys)
-      MCEV gs | MCEU _  <- x -> MCEV (fmap (<*> x) gs)
-              | MCEV ys <- x -> MCEV (zipWith (<*>) gs ys)
-  {-# INLINE (<*>) #-}
-
-mce_elem :: MCE a -> [a]
-mce_elem m =
-  case m of
-    MCEU x  -> [x]
-    MCEV xs -> concatMap mce_elem xs
-{-# INLINABLE mce_elem #-}
-
-mce_extend :: Int -> MCE a -> MCE a
-mce_extend n m =
-  case m of
-    MCEU _  -> MCEV (replicate n m)
-    MCEV xs | length xs == n -> m
-            | otherwise      -> MCEV (take n (cycle xs))
-{-# INLINABLE mce_extend #-}
-
-mce_degree :: MCE a -> Int
-mce_degree m =
-  case m of
-    MCEU _  -> 1
-    MCEV xs -> length xs
-{-# INLINABLE mce_degree #-}
-
-mce_list :: MCE a -> [MCE a]
-mce_list m =
-  case m of
-    MCEU _ -> [m]
-    MCEV xs -> xs
-{-# INLINABLE mce_list #-}
-
-is_mce_vector :: MCE a -> Bool
-is_mce_vector m =
-  case m of
-    MCEV {} -> True
-    _       -> False
-{-# INLINABLE is_mce_vector #-}
-
---
--- Auxiliary functions for NodeId, DAG, and G_Node
---
-
-nid_value :: NodeId -> Int
-nid_value nid =
-  case nid of
-    NodeId_C i -> i
-    NodeId_K i _ -> i
-    NodeId_U i -> i
-    NodeId_P i _ -> i
-    NConstant v -> error ("nid_value: constant " ++ show v)
-{-# INLINABLE nid_value #-}
-
-lookup_g_node :: NodeId -> DAG s -> ST s G_Node
-lookup_g_node nid dag =
-  case nid of
-    NodeId_C k -> lookup_val k (cmap dag)
-    NodeId_K k _ -> lookup_val k (kmap dag)
-    NodeId_U k -> lookup_val k (umap dag)
-    NodeId_P k _ -> lookup_val k (umap dag)
-    NConstant v -> error ("lookup_g_node: constant " ++ show v)
-{-# INLINABLE lookup_g_node #-}
-
-nid_to_port :: NodeId -> From_Port
-nid_to_port nid =
-  case nid of
-    NodeId_C k -> From_Port_C k
-    NodeId_K k t -> From_Port_K k t
-    NodeId_U k -> From_Port_U k Nothing
-    NodeId_P k p -> From_Port_U k (Just p)
-    NConstant v -> error ("nid_to_port: constant " ++ show v)
-{-# INLINABLE nid_to_port #-}
-
-g_node_rate :: G_Node -> Rate
-g_node_rate n =
-  case n of
-    G_Node_C {} -> IR
-    G_Node_K {} -> g_node_k_rate n
-    G_Node_U {} -> g_node_u_rate n
-{-# INLINABLE g_node_rate #-}
-
---
--- Hash-consing
---
-
-hashcons :: (Int -> NodeId)
-         -> (DAG s -> BiMap s G_Node)
-         -> G_Node
-         -> ReaderT (DAG s) (ST s) NodeId
-hashcons con prj x = do
-  dag <- ask
-  v <- lift (lookup_key x (prj dag))
-  case v of
-    Nothing -> lift (do count <- readSTRef (hashcount dag)
-                        let count' = count + 1
-                        insert_at x count (prj dag)
-                        count' `seq` writeSTRef (hashcount dag) count'
-                        return $! con count)
-    Just k  -> return (con k)
-{-# INLINABLE hashcons #-}
-
-hashconsC :: G_Node -> ReaderT (DAG s) (ST s) NodeId
-hashconsC = hashcons NodeId_C cmap
-{-# INLINABLE hashconsC #-}
-
-hashconsK :: G_Node -> ReaderT (DAG s) (ST s) NodeId
-hashconsK n = hashcons (flip NodeId_K (g_node_k_type n)) kmap n
-{-# INLINABLE hashconsK #-}
-
-hashconsU :: G_Node -> ReaderT (DAG s) (ST s) NodeId
-hashconsU = hashcons NodeId_U umap
-{-# INLINABLE hashconsU #-}
 
 --
 -- The UGen type and instance declarations
@@ -525,29 +217,23 @@ ugen_to_graphdef name g =
   in  gr `seq` graph_to_graphdef name gr
 
 ugen_to_graph :: UGen -> U_Graph
-ugen_to_graph g =
-  case ugen_to_graph' g of
-    (_, (count, cm, km, um)) ->
-      let ug = U_Graph {ug_next_id=count
-                       ,ug_constants=cm
-                       ,ug_controls=km
-                       ,ug_ugens=um}
-      in  ug `seq` ug_add_implicit ug
-
-ugen_to_graph' :: G a -> (a, (Int, [U_Node], [U_Node], [U_Node]))
-ugen_to_graph' (G m) =
+ugen_to_graph (G m) =
   runST
     (do dag <- emptyDAG
-        r <- runReaderT m dag
+        _r <- runReaderT m dag
         let as_u_nodes f | BiMap _ kt <- f dag =
               fmap (sortBy (compare `on` u_node_id)) (HC.foldM g [] kt)
-            g acc (k,v) = return (gnode_to_unode k v : acc)
+            g acc (k,v) = return $! (gnode_to_unode k v : acc)
         cm <- as_u_nodes cmap
         km <- as_u_nodes kmap
         um <- as_u_nodes umap
         count <- readSTRef (hashcount dag)
-        return (r, (count, cm, km, um)))
-{-# INLINE ugen_to_graph' #-}
+        let graph = U_Graph {ug_next_id=count
+                            ,ug_constants=cm
+                            ,ug_controls=km
+                            ,ug_ugens=um}
+        graph `seq` return $! ug_add_implicit graph)
+{-# INLINABLE ugen_to_graph #-}
 
 gnode_to_unode :: Int -> G_Node -> U_Node
 gnode_to_unode nid node =
@@ -650,7 +336,7 @@ normalize n_outputs f inputs = go inputs
                inputs1 = map (mce_list . mce_extend n) inputs0
            fmap MCEV (mapM go (transpose inputs1))
          else do
-           nid <- f (concatMap mce_elem inputs0)
+           nid <- f (concatMap toList inputs0)
            if n_outputs > 1
               then let mk_nodeid_p = MCEU . NodeId_P (nid_value nid)
                        nids = map mk_nodeid_p [0..(n_outputs-1)]
@@ -921,20 +607,6 @@ mce2 a b = G ((\x y -> MCEV [x,y]) <$> unG a <*> unG b)
 dup :: Int -> UGen -> UGen
 dup n = mce . (replicate n)
 {-# INLINABLE dup #-}
-
-mix :: UGen -> UGen
-mix g = do
-  mce_nid <- g
-  case mce_nid of
-    MCEV nids ->
-      -- XXX: Use 'Sum3' and 'Sum4', so move to other module.
-      let f xs = case xs of
-                   []    -> constant 0
-                   x:[]  -> return x
-                   x:xs' -> return x + f xs'
-      in  f nids
-    MCEU _    -> return mce_nid
-{-# INLINABLE mix #-}
 
 envelope_to_ugen :: Envelope UGen -> UGen
 envelope_to_ugen e =

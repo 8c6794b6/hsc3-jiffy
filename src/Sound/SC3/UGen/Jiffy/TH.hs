@@ -5,7 +5,7 @@
 -- Doing similar works done in "Sound.SC3.UGen.DB.Bindings" module, but
 -- with template haskell.
 --
-module Sound.SC3.Jiffy.UGen.TH where
+module Sound.SC3.UGen.Jiffy.TH where
 
 -- template-haskell
 import Language.Haskell.TH
@@ -22,7 +22,7 @@ import Sound.SC3.UGen.DB.Record (U(..), ugen_fixed_rate)
 import Sound.SC3.UGen.DB.Rename (u_renamed_inputs)
 
 -- Internal
-import Sound.SC3.Jiffy.UGen.Builder
+import Sound.SC3.UGen.Jiffy.Builder
 
 -- | Macro to define UGen functions.
 ugenDecsQ :: Q [Dec]

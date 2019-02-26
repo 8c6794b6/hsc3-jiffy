@@ -5,13 +5,10 @@ import Data.Foldable (foldr')
 -- deepseq
 import Control.DeepSeq
 
--- hsc3
-import Sound.SC3 (Rate(..), BinaryOp(..))
-
 -- Internal
+import Sound.SC3.Jiffy
 import Sound.SC3.Jiffy.Encode (encode_graphdef)
-import Sound.SC3.Jiffy.UGen.Builder (UGen, ugen_to_graphdef, mce, share)
-import Sound.SC3.Jiffy.UGen.DB
+
 
 g07 :: Int -> UGen
 g07 n = do

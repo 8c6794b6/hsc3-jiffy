@@ -15,9 +15,7 @@ import Data.ByteString.Lazy (toStrict)
 import Criterion.Main (Benchmark, defaultMain, bench, bgroup, nf)
 
 -- hsc3
-import Sound.SC3 (Rate(..), BinaryOp(..))
 import Sound.SC3.Server.Graphdef.Graph (graph_to_graphdef)
-
 import qualified Sound.SC3 as S
 import qualified Sound.SC3.UGen.Graph as SUG
 import qualified Sound.SC3.Server.Graphdef as SSG
@@ -27,9 +25,8 @@ import qualified Vivid as V
 import qualified Vivid.SynthDef.FromUA as FromUA
 
 -- Internal
+import Sound.SC3.Jiffy
 import Sound.SC3.Jiffy.Encode
-import Sound.SC3.Jiffy.UGen.Builder
-import Sound.SC3.Jiffy.UGen.DB
 
 h :: S.UGen -> ByteString
 h = toStrict . SSG.encode_graphdef .
@@ -95,9 +92,9 @@ bench_g03 =
          [bgroup  "64" [bench "hsc3" (nf (h . g03h) 64)
                        ,bench "jiffy" (nf (j . g03j) 64)
                        ,bench "vivid" (nf (v . g03v) 64)]
-         ,bgroup "256" [bench "hsc3" (nf (h . g03h) 256)
-                       ,bench "jiffy" (nf (j . g03j) 256)
-                       ,bench "vivid" (nf (v . g03v) 256)]]
+         ,bgroup "128" [bench "hsc3" (nf (h . g03h) 128)
+                       ,bench "jiffy" (nf (j . g03j) 128)
+                       ,bench "vivid" (nf (v . g03v) 128)]]
 
 g07h :: Int -> S.UGen
 g07h n =

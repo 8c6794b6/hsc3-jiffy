@@ -1,13 +1,18 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 -- -----------------------------------------------------------------------
 -- | Module containing orphan instances.
-module Sound.SC3.Jiffy.UGen.Orphan () where
+
+module Sound.SC3.Jiffy.Orphan () where
 
 -- hashable
 import Data.Hashable (Hashable(..), hashUsing)
 
 -- hsc3
 import Sound.SC3 (K_Type(..), Rate(..), Special(..), UGenId(..))
+
+--
+-- Orphan instances
+--
 
 instance Hashable Special where
   hashWithSalt s (Special n) = s `hashWithSalt` n
