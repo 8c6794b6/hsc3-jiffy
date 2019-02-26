@@ -16,6 +16,7 @@ cabal-version:       >= 1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Sound.SC3.Jiffy
+                       Sound.SC3.Jiffy.Compat
                        Sound.SC3.Jiffy.Encode
                        Sound.SC3.UGen.Jiffy
                        Sound.SC3.UGen.Jiffy.Builder
@@ -26,6 +27,7 @@ library
                        Sound.SC3.UGen.Jiffy.TH
   build-depends:       base >= 4.12 && < 5
                      , bytestring
+                     , filepath
                      , hashable
                      , hashtables
                      , hosc

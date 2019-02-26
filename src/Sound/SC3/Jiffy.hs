@@ -8,9 +8,14 @@ module Sound.SC3.Jiffy (module All) where
 
 -- hsc3
 import Sound.SC3.Common as All
-
--- XXX: Hide functions using "Sound.SC3.UGen".
-import Sound.SC3.Server.Monad as All
+import Sound.SC3.Server.Monad as All hiding
+  ( Synthdef(..), synthdef
+  , defaultSynthdef, defaultSampler
+  , synthdefGraph, synthdefParam, synthdef_to_graphdef, synthdefData
+  , synthdefWrite, synthdefWrite_dir
+  , synthstat, synthstat_ln , synthstat_wr , synthstat_concise
+  , d_recv )
 
 -- Internal
+import Sound.SC3.Jiffy.Compat as All
 import Sound.SC3.UGen.Jiffy as All
