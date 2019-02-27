@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -47,7 +48,7 @@ module Sound.SC3.UGen.Jiffy.Builder
 -- base
 import Control.Monad (foldM)
 import Control.Monad.ST (ST, runST)
-import Data.Foldable (toList)
+import Data.Foldable (foldl', toList)
 import Data.Function (on)
 import Data.List (sortBy, transpose)
 import Data.STRef (readSTRef)
@@ -224,8 +225,9 @@ ugen_to_graph (G m) =
     (do dag <- emptyDAG
         _r <- runReaderT m dag
         let as_u_nodes f | BiMap _ kt <- f dag =
+              -- Hashtables does not guarantee the order, need to sort.
               fmap (sortBy (compare `on` u_node_id)) (HC.foldM g [] kt)
-            g acc (k,v) = return $! (gnode_to_unode k v : acc)
+            g acc (k,v) = return (gnode_to_unode k v : acc)
         cm <- as_u_nodes cmap
         km <- as_u_nodes kmap
         um <- as_u_nodes umap
@@ -234,7 +236,7 @@ ugen_to_graph (G m) =
                             ,ug_constants=cm
                             ,ug_controls=km
                             ,ug_ugens=um}
-        return $! ug_add_implicit graph)
+        return (ug_add_implicit graph))
 {-# INLINABLE ugen_to_graph #-}
 
 gnode_to_unode :: Int -> G_Node -> U_Node
@@ -281,6 +283,10 @@ gnode_to_unode nid node =
 -- computation with the given arguments.  Non-operator UGen function
 -- calls 'runG' function in its body, to hashcons the constant
 -- values. At this point 'NConstnat' get converted to 'NodeId_C' in DAG.
+--
+-- When DAG can perform dead code elimination efficiently, 'NConstant'
+-- could be removed. Apply Haskell function to constant values referred
+-- by 'NodeId_C', then remove the unused constants from current graph.
 
 -- | Unwrap the action inside 'G'. This function will store
 -- 'NConstant' values to 'DAG' when found, and return 'NodeId_C'
@@ -295,7 +301,7 @@ runG g =
 
 -- | Create constant value node.
 constant :: Sample -> UGen
-constant v = G (return $! MCEU (NConstant v))
+constant v = G (return (MCEU (NConstant v)))
 {-# INLINE constant #-}
 
 -- | Create control value node.
@@ -346,18 +352,23 @@ normalize n_outputs f inputs = go inputs
     go inputs0 =
       if any is_mce_vector inputs0
          then do
-           let n = maximum (map mce_degree inputs0)
+           let n = max_mce_degree inputs0
                inputs1 = map (mce_list . mce_extend n) inputs0
-           fmap MCEV (mapM go (transpose inputs1))
+               inputs2 = transpose inputs1
+           fmap MCEV (mapM go inputs2)
          else do
            nid <- f (concatMap toList inputs0)
            if n_outputs > 1
               then let mk_nodeid_p = MCEU . NodeId_P (nid_value nid)
                        nids = map mk_nodeid_p [0..(n_outputs-1)]
-                   in  return $! MCEV nids
-              else return $! MCEU nid
+                   in  return (MCEV nids)
+              else return (MCEU nid)
     {-# INLINE go #-}
 {-# INLINABLE normalize #-}
+
+max_mce_degree :: [MCE a] -> Int
+max_mce_degree = foldl' (\c m -> max (mce_degree m) c) 1
+{-# INLINE max_mce_degree #-}
 
 -- | Inner function used in UGen constructor functions.
 mkUGenFn :: Int
@@ -367,7 +378,7 @@ mkUGenFn :: Int
          -> (forall s. [NodeId] -> DAG s -> ST s Rate)
          -> [NodeId]
          -> ReaderT (DAG g) (ST g) NodeId
-mkUGenFn n_output uid_fn special name rate_fn inputs = do
+mkUGenFn !n_output uid_fn special name rate_fn inputs = do
   dag <- ask
   rate <- lift (rate_fn inputs dag)
   uid <- lift (uid_fn dag)
@@ -473,12 +484,13 @@ unary_op_ugen_with :: (Sample -> Sample) -> Unary -> UGen -> UGen
 unary_op_ugen_with fn op a =
   G (do let f inputs =
               case inputs of
-                [NConstant v] -> return $! NConstant (fn v)
+                [NConstant v] -> return $ NConstant (fn v)
                 [nid0] -> do
                   dag <- ask
                   n0 <- lift (lookup_g_node nid0 dag)
                   let rate = g_node_rate n0
-                      special = Special (fromEnum op)
+                      opnum = fromEnum op
+                      special = Special opnum
                   hashconsU (G_Node_U {g_node_u_rate=rate
                                       ,g_node_u_name="UnaryOpUGen"
                                       ,g_node_u_inputs=inputs
@@ -499,7 +511,7 @@ binary_op_ugen_with fn op a b =
   G (do let f inputs =
               case inputs of
                 [NConstant v0, NConstant v1] ->
-                  return $! NConstant (fn v0 v1)
+                  return $ NConstant (fn v0 v1)
                 [NConstant v0, nid1] -> do
                   dag <- ask
                   nid0' <- hashconsC (G_Node_C v0)
@@ -523,7 +535,8 @@ binary_op_ugen_with fn op a b =
                                   ,g_node_u_outputs=[rate]
                                   ,g_node_u_special=special
                                   ,g_node_u_ugenid=NoId})
-            special = Special (fromEnum op)
+            special = Special opnum
+            opnum = fromEnum op
         a' <- unG a
         b' <- unG b
         normalize 1 f [a',b'])
@@ -550,22 +563,22 @@ spec0 = Special 0
 {-# INLINE spec0 #-}
 
 const_rate :: Rate -> a -> b -> ST s Rate
-const_rate r _ _ = return r
+const_rate !r _ _ = return r
 {-# INLINE const_rate #-}
 
 -- | Get rate from index of 'NodeId' argument.
 get_rate_at :: Int -> [NodeId] -> DAG s -> ST s Rate
-get_rate_at i nids dag = do
+get_rate_at !i nids dag = do
   n <- lookup_g_node (nids !! i) dag
-  return $! g_node_rate n
+  return $ g_node_rate n
 {-# INLINE get_rate_at #-}
 
 -- | Get maximum rate from selected node ids by input argument indices.
 maximum_rate :: [Int] -> [NodeId] -> DAG s -> ST s Rate
 maximum_rate is nids dag = do
-  let f current i = do
+  let f !current !i = do
         node <- lookup_g_node (nids !! i) dag
-        return $! max current (g_node_rate node)
+        return $ max current (g_node_rate node)
   foldM f IR is
 {-# INLINE maximum_rate #-}
 

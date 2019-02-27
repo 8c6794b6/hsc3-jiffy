@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RecordWildCards #-}
 -- | Internal of UGen builder.
 module Sound.SC3.UGen.Jiffy.Builder.Internal
@@ -87,18 +88,18 @@ data BiMap s a =
 empty :: Int -- ^ Initial size of hash tables.
       -> ST s (BiMap s a)
 empty n = BiMap <$> HC.newSized n <*> HC.newSized n
-{-# INLINABLE empty #-}
+{-# INLINE empty #-}
 
 -- | Lookup 'BiMap' with value to find a 'Int' key.
 lookup_key :: (Hashable a, Eq a) => a -> BiMap s a -> ST s (Maybe Int)
-lookup_key v (BiMap m _) = HC.lookup m v
+lookup_key !v (BiMap m _) = HC.lookup m v
 {-# INLINABLE lookup_key #-}
 {-# SPECIALIZE lookup_key
   :: G_Node -> BiMap s G_Node -> ST s (Maybe Int) #-}
 
 -- | Lookup 'Bimap' with 'Int' key to find a value.
 lookup_val :: Int -> BiMap s a -> ST s a
-lookup_val k (BiMap _ m) = do
+lookup_val !k (BiMap _ m) = do
   ret <- HC.lookup m k
   case ret of
     Just v -> return v
@@ -107,7 +108,8 @@ lookup_val k (BiMap _ m) = do
 
 -- | Insert new element to 'Bimap' with given value and key.
 insert_at :: (Hashable a, Eq a) => a -> Int -> BiMap s a -> ST s ()
-insert_at v k (BiMap vt kt) = HC.insert vt v k >> HC.insert kt k v
+insert_at !v !k (BiMap vt kt) =
+  HC.insert vt v k >> HC.insert kt k v
 {-# INLINABLE insert_at #-}
 {-# SPECIALIZE insert_at
   :: G_Node -> Int -> BiMap s G_Node -> ST s () #-}
@@ -131,8 +133,8 @@ data G_Node
   -- ^ Control node, for 'U_Node_K'.
   | G_Node_U { g_node_u_rate :: !Rate
              , g_node_u_name :: !String
-             , g_node_u_inputs :: ![NodeId]
-             , g_node_u_outputs :: ![Output]
+             , g_node_u_inputs :: [NodeId]
+             , g_node_u_outputs :: [Output]
              , g_node_u_special :: {-# UNPACK #-} !Special
              , g_node_u_ugenid :: !UGenId }
   -- ^ UGen node, for 'U_Node_U'.
@@ -203,28 +205,28 @@ instance Hashable NodeId where
 -- | Recursive data type for multi channel expansion.
 data MCE a
   = MCEU !a
-  | MCEV ![MCE a]
+  | MCEV [MCE a]
   deriving (Eq, Ord, Show)
 
 instance Functor MCE where
-  fmap f m =
-    case m of
-      MCEU x  -> MCEU (f x)
-      MCEV xs -> MCEV (fmap (fmap f) xs)
+  fmap f = go
+    where
+      go (MCEU a) = MCEU (f a)
+      go (MCEV as) = MCEV (fmap go as)
   {-# INLINE fmap #-}
 
 instance Foldable MCE where
-  foldMap f m =
-    case m of
-      MCEU a  -> f a
-      MCEV as -> foldMap (foldMap f) as
+  foldMap f = go
+    where
+      go (MCEU a) = f a
+      go (MCEV as) = foldMap go as
   {-# INLINE foldMap #-}
 
 instance Traversable MCE where
-  traverse f m =
-    case m of
-      MCEU a  -> fmap MCEU (f a)
-      MCEV as -> fmap MCEV (traverse (traverse f) as)
+  traverse f = go
+    where
+      go (MCEU a) =  MCEU <$> f a
+      go (MCEV as) = MCEV <$> traverse go as
   {-# INLINE traverse #-}
 
 instance Applicative MCE where
@@ -239,7 +241,7 @@ instance Applicative MCE where
   {-# INLINE (<*>) #-}
 
 mce_extend :: Int -> MCE a -> MCE a
-mce_extend n m =
+mce_extend !n m =
   case m of
     MCEU _  -> MCEV (replicate n m)
     MCEV xs | length xs == n -> m
@@ -319,22 +321,25 @@ hashcons :: (Int -> NodeId)
          -> ReaderT (DAG s) (ST s) NodeId
 hashcons con prj x = do
   dag <- ask
-  v <- lift (lookup_key x (prj dag))
+  let bimap = prj dag
+  v <- lift (lookup_key x bimap)
   case v of
-    Nothing -> lift (do count <- readSTRef (hashcount dag)
-                        let count' = count + 1
-                        insert_at x count (prj dag)
-                        count' `seq` writeSTRef (hashcount dag) count'
-                        return $! con count)
-    Just k  -> return $! con k
-{-# INLINABLE hashcons #-}
+    Nothing -> lift $ do let ref = hashcount dag
+                         count <- readSTRef ref
+                         let count' = count + 1
+                             con' = con count
+                         insert_at x count bimap
+                         count' `seq` writeSTRef ref count'
+                         return con'
+    Just k  -> return (con k)
+{-# INLINE hashcons #-}
 
 hashconsC :: G_Node -> ReaderT (DAG s) (ST s) NodeId
 hashconsC = hashcons NodeId_C cmap
 {-# INLINABLE hashconsC #-}
 
 hashconsK :: G_Node -> ReaderT (DAG s) (ST s) NodeId
-hashconsK n = hashcons (flip NodeId_K (g_node_k_type n)) kmap n
+hashconsK g = hashcons (flip NodeId_K (g_node_k_type g)) kmap g
 {-# INLINABLE hashconsK #-}
 
 hashconsU :: G_Node -> ReaderT (DAG s) (ST s) NodeId
