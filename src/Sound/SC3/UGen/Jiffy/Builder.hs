@@ -49,7 +49,7 @@ import Control.Monad (foldM)
 import Control.Monad.ST (ST, runST)
 import Data.Foldable (toList)
 import Data.Function (on)
-import Data.List (intercalate, sortBy, transpose)
+import Data.List (sortBy, transpose)
 import Data.STRef (readSTRef)
 
 -- hashtables
@@ -69,8 +69,6 @@ import Sound.SC3.Server.Graphdef (Graphdef(..))
 import Sound.SC3.Server.Graphdef.Graph (graph_to_graphdef)
 import Sound.SC3.UGen.Graph
   ( U_Graph(..), U_Node(..), ug_add_implicit, {- ug_pv_validate, -} )
-import qualified Sound.SC3 as SC3
-import qualified Sound.SC3.UGen.Graph as SC3UG
 
 -- transformers
 import Control.Monad.Trans.Class (lift)
@@ -207,6 +205,10 @@ instance UnaryOp UGen where
 instance BinaryOp UGen where
   clip2 = binary_op_ugen_with clip2 Clip2
 
+instance Dump UGen where
+  dumpString = dumpString . ugen_to_graphdef "<dump>"
+
+
 --
 -- Converting to U_Graph and Graphdef
 --
@@ -232,7 +234,7 @@ ugen_to_graph (G m) =
                             ,ug_constants=cm
                             ,ug_controls=km
                             ,ug_ugens=um}
-        graph `seq` return $! ug_add_implicit graph)
+        return $! ug_add_implicit graph)
 {-# INLINABLE ugen_to_graph #-}
 
 gnode_to_unode :: Int -> G_Node -> U_Node
@@ -317,6 +319,18 @@ tr_control name val = G (fmap MCEU (hashconsK node))
                     ,g_node_k_default=val
                     ,g_node_k_type=K_TR}
 {-# INLINABLE tr_control #-}
+
+-- Note [Recursively nested MCE vectors]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+--
+-- 'Sound.SC3.UGen.MCE.MCE' data type does not express nested list
+-- (a.k.a. Rose tree), so 'Sound.SC3.UGen.Type.UGen' data type has
+-- recursive 'MCE_U' constructor, to express nested MCE values such as:
+--
+--    MCE_U (MCE_Vector [MCE_U (MCE_Vector [...]), ...])
+--
+-- The 'MCE' data type used here has recursive structure to express such
+-- recusive input nodes.
 
 -- | Recursively expand multi channel inputs, and if the number of
 -- outputs were greater than 1, make proxy node ids.
@@ -615,65 +629,6 @@ envelope_to_ugen e =
     Nothing -> error "envelope_to_ugen: bad Envelope"
 {-# INLINABLE envelope_to_ugen #-}
 
---
--- Dumper
---
-
-class Dump a where
-  dumpString :: a -> String
-  dump :: a -> IO ()
-  dump = putStrLn . dumpString
-
-instance Dump U_Graph where
-  dumpString = dump_u_graph
-
-instance Dump Graphdef where
-  dumpString = dump_graphdef
-
-instance Dump UGen where
-  dumpString = dumpString . ugen_to_graphdef "<dump>"
-
-instance Dump SC3.UGen where
-  dumpString =
-    dumpString . graph_to_graphdef "<dump>" . SC3UG.ugen_to_graph
-
-dump_u_graph :: U_Graph -> String
-dump_u_graph ugraph =
-  unlines'
-    [ "--- constants ---"
-    , prints (ug_constants ugraph)
-    , "--- controls ---"
-    , prints (ug_controls ugraph)
-    , "--- ugens ---"
-    , prints (ug_ugens ugraph) ]
-
-dump_graphdef :: Graphdef -> String
-dump_graphdef gd =
-  unlines'
-    [ "name: " ++ show (graphdef_name gd)
-     , "--- constants ---"
-     , printsWithIndex (graphdef_constants gd)
-     , "--- controls ---"
-     , printsWithIndex (graphdef_controls gd)
-     , "--- ugens ---"
-     , printsWithIndex (graphdef_ugens gd) ]
-
-unlines' :: [String] -> String
-unlines' = intercalate "\n"
-
-prints :: Show a => [a] -> String
-prints xs = case xs of
-  [] -> "None."
-  _  -> unlines' (map show xs)
-
-printsWithIndex :: Show a => [a] -> String
-printsWithIndex xs =
-  case xs of
-    [] -> "None."
-    _  -> let f x y = concat [show x, ": ", show y]
-          in  unlines' (zipWith f [(0::Int) ..] xs)
-
-
 --
 -- Auxilary
 --
