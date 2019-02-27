@@ -281,7 +281,7 @@ nid_value nid =
     NodeId_U i -> i
     NodeId_P i _ -> i
     NConstant v -> error ("nid_value: constant " ++ show v)
-{-# INLINABLE nid_value #-}
+{-# INLINE nid_value #-}
 
 lookup_g_node :: NodeId -> DAG s -> ST s G_Node
 lookup_g_node nid dag =
@@ -291,7 +291,7 @@ lookup_g_node nid dag =
     NodeId_U k -> lookup_val k (umap dag)
     NodeId_P k _ -> lookup_val k (umap dag)
     NConstant v -> error ("lookup_g_node: constant " ++ show v)
-{-# INLINABLE lookup_g_node #-}
+{-# INLINE lookup_g_node #-}
 
 nid_to_port :: NodeId -> From_Port
 nid_to_port nid =
@@ -301,7 +301,7 @@ nid_to_port nid =
     NodeId_U k -> From_Port_U k Nothing
     NodeId_P k p -> From_Port_U k (Just p)
     NConstant v -> error ("nid_to_port: constant " ++ show v)
-{-# INLINABLE nid_to_port #-}
+{-# INLINE nid_to_port #-}
 
 g_node_rate :: G_Node -> Rate
 g_node_rate n =
@@ -309,7 +309,7 @@ g_node_rate n =
     G_Node_C {} -> IR
     G_Node_K {} -> g_node_k_rate n
     G_Node_U {} -> g_node_u_rate n
-{-# INLINABLE g_node_rate #-}
+{-# INLINE g_node_rate #-}
 
 --
 -- Hash-consing
