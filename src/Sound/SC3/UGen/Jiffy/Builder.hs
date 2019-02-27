@@ -40,7 +40,9 @@ module Sound.SC3.UGen.Jiffy.Builder
   , noId
   , hashUId
   , spec0
+
   , envelope_to_ugen
+  , isSink
 
   , Dump(..)
   ) where
@@ -56,16 +58,11 @@ import Data.STRef (readSTRef)
 -- hashtables
 import qualified Data.HashTable.Class as HC
 
--- hosc
-import Sound.OSC (sendMessage)
-
 -- hsc3
 import Sound.SC3
-  ( Audible(..), Binary(..), BinaryOp(..), Rate(..), K_Type(..)
+  ( Binary(..), BinaryOp(..), Rate(..), K_Type(..)
   , Sample, Special(..), UGenId(..), Unary(..), UnaryOp(..)
   , Envelope(..), envelope_sc3_array )
-import Sound.SC3.Server.Command.Generic (withCM)
-import Sound.SC3.Server.Command.Plain (d_recv_bytes, s_new)
 import Sound.SC3.Server.Graphdef (Graphdef(..))
 import Sound.SC3.Server.Graphdef.Graph (graph_to_graphdef)
 import Sound.SC3.UGen.Graph
@@ -76,7 +73,6 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT(..), ask)
 
 -- Internal
-import Sound.SC3.Jiffy.Encode
 import Sound.SC3.Jiffy.Orphan ()
 import Sound.SC3.UGen.Jiffy.Builder.Internal
 
@@ -183,13 +179,6 @@ instance RealFrac UGen where
   round = error "G: round"
   ceiling = error "G: ceiling"
   floor = error "G: floor"
-
-instance Audible UGen where
-  play_at (nid,aa,gid,params) ug =
-    let gd = ugen_to_graphdef "anon" ug
-        dr = d_recv_bytes (encode_graphdef gd)
-        sn = s_new "anon" nid aa gid params
-    in  sendMessage (withCM dr sn)
 
 instance UnaryOp UGen where
   cubed = unary_op_ugen_with cubed Cubed
@@ -641,6 +630,17 @@ envelope_to_ugen e =
     Just as -> mce as
     Nothing -> error "envelope_to_ugen: bad Envelope"
 {-# INLINABLE envelope_to_ugen #-}
+
+isSink :: UGen -> G (Bool, MCE NodeId)
+isSink ug =
+  G (do mce_nid0 <- unG ug
+        dag <- ask
+        let f acc nid = do
+              g <- lift (lookup_g_node nid dag)
+              return (acc || null (g_node_u_outputs g))
+        is_sink <- foldM f False mce_nid0
+        return (is_sink, mce_nid0))
+{-# INLINABLE isSink #-}
 
 --
 -- Auxilary
