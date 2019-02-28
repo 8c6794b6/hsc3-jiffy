@@ -26,6 +26,7 @@ module Sound.SC3.UGen.Jiffy.Builder.Internal
   , MCE(..)
   , mce_extend
   , mce_degree
+  , mce_max_degree
   , mce_list
   , is_mce_vector
 
@@ -35,6 +36,7 @@ module Sound.SC3.UGen.Jiffy.Builder.Internal
 
 -- base
 import Control.Monad.ST (ST)
+import Data.Foldable (foldl')
 import Data.List (intercalate)
 import Data.STRef (STRef, newSTRef, readSTRef, writeSTRef)
 
@@ -209,28 +211,29 @@ instance Hashable NodeId where
 -- | Recursive data type for multi channel expansion.
 data MCE a
   = MCEU !a
-  | MCEV [MCE a]
+  | MCEV {-# UNPACK #-} !Int -- ^ Number of channels.
+         [MCE a]             -- ^ Channel contents.
   deriving (Eq, Ord, Show)
 
 instance Functor MCE where
   fmap f = go
     where
       go (MCEU a) = MCEU (f a)
-      go (MCEV as) = MCEV (fmap go as)
+      go (MCEV n as) = MCEV n (fmap go as)
   {-# INLINE fmap #-}
 
 instance Foldable MCE where
   foldMap f = go
     where
       go (MCEU a) = f a
-      go (MCEV as) = foldMap go as
+      go (MCEV _ as) = foldMap go as
   {-# INLINE foldMap #-}
 
 instance Traversable MCE where
   traverse f = go
     where
       go (MCEU a) =  MCEU <$> f a
-      go (MCEV as) = MCEV <$> traverse go as
+      go (MCEV n as) = MCEV n <$> traverse go as
   {-# INLINE traverse #-}
 
 instance Applicative MCE where
@@ -238,33 +241,37 @@ instance Applicative MCE where
   {-# INLINE pure #-}
   f <*> x =
     case f of
-      MCEU g  | MCEU y  <- x -> MCEU (g y)
-              | MCEV ys <- x -> MCEV (fmap (fmap g) ys)
-      MCEV gs | MCEU _  <- x -> MCEV (fmap (<*> x) gs)
-              | MCEV ys <- x -> MCEV (zipWith (<*>) gs ys)
+      MCEU g    | MCEU y  <- x   -> MCEU (g y)
+                | MCEV n ys <- x -> MCEV n (fmap (fmap g) ys)
+      MCEV n gs | MCEU _  <- x   -> MCEV n (fmap (<*> x) gs)
+                | MCEV m ys <- x -> MCEV (min n m) (zipWith (<*>) gs ys)
   {-# INLINE (<*>) #-}
 
 mce_extend :: Int -> MCE a -> MCE a
 mce_extend !n m =
   case m of
-    MCEU _  -> MCEV (replicate n m)
-    MCEV xs | length xs == n -> m
-            | otherwise      -> MCEV (take n (cycle xs))
-{-# INLINABLE mce_extend #-}
+    MCEU _ -> MCEV n (replicate n m)
+    MCEV n' xs | n' == n   -> m
+               | otherwise -> MCEV n (take n (cycle xs))
+{-# INLINE mce_extend #-}
 
 mce_degree :: MCE a -> Int
 mce_degree m =
   case m of
-    MCEU _  -> 1
-    MCEV xs -> length xs
-{-# INLINABLE mce_degree #-}
+    MCEU _   -> 1
+    MCEV n _ -> n
+{-# INLINE mce_degree #-}
+
+mce_max_degree :: [MCE a] -> Int
+mce_max_degree = foldl' (\c m -> max (mce_degree m) c) 1
+{-# INLINE mce_max_degree #-}
 
 mce_list :: MCE a -> [MCE a]
 mce_list m =
   case m of
-    MCEU _ -> [m]
-    MCEV xs -> xs
-{-# INLINABLE mce_list #-}
+    MCEU _    -> [m]
+    MCEV _ xs -> xs
+{-# INLINE mce_list #-}
 
 is_mce_vector :: MCE a -> Bool
 is_mce_vector m =

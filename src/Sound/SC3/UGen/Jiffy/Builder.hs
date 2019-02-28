@@ -48,9 +48,8 @@ module Sound.SC3.UGen.Jiffy.Builder
   ) where
 
 -- base
-import Control.Monad (foldM)
 import Control.Monad.ST (ST, runST)
-import Data.Foldable (foldl', toList)
+import Data.Foldable (foldlM, toList)
 import Data.Function (on)
 import Data.List (sortBy, transpose)
 import Data.STRef (readSTRef)
@@ -340,25 +339,19 @@ normalize :: Int
 normalize n_outputs f inputs = go inputs
   where
     go inputs0 =
-      if any is_mce_vector inputs0
-         then do
-           let n = max_mce_degree inputs0
-               inputs1 = map (mce_list . mce_extend n) inputs0
-               inputs2 = transpose inputs1
-           fmap MCEV (mapM go inputs2)
-         else do
-           nid <- f (concatMap toList inputs0)
-           if n_outputs > 1
-              then let mk_nodeid_p = MCEU . NodeId_P (nid_value nid)
-                       nids = map mk_nodeid_p [0..(n_outputs-1)]
-                   in  return (MCEV nids)
-              else return (MCEU nid)
+      case mce_max_degree inputs0 of
+        1 -> do
+          nid <- f (concatMap toList inputs0)
+          if n_outputs > 1
+             then let mk_nodeid_p = MCEU . NodeId_P (nid_value nid)
+                      nids = map mk_nodeid_p [0..(n_outputs-1)]
+                  in  return (MCEV n_outputs nids)
+             else return (MCEU nid)
+        n -> do
+          let inputs1 = map (mce_list . mce_extend n) inputs0
+          fmap (MCEV n) (mapM go (transpose inputs1))
     {-# INLINE go #-}
 {-# INLINABLE normalize #-}
-
-max_mce_degree :: [MCE a] -> Int
-max_mce_degree = foldl' (\c m -> max (mce_degree m) c) 1
-{-# INLINE max_mce_degree #-}
 
 -- | Inner function used in UGen constructor functions.
 mkUGenFn :: forall s. Int
@@ -549,7 +542,7 @@ maximum_rate is nids dag = do
   let f !current !i = do
         node <- lookup_g_node (nids !! i) dag
         return $ max current (g_node_rate node)
-  foldM f IR is
+  foldlM f IR is
 {-# INLINE maximum_rate #-}
 
 -- | Input unwrapper for channels array UGens.
@@ -583,21 +576,23 @@ mceChannel :: Int -> UGen -> UGen
 mceChannel n g =
   G (do nid <- unG g
         case nid of
-          MCEV xs -> return (xs !! n)
+          MCEV _ xs -> return (xs !! n)
           MCEU _ | n == 0 -> return nid
           _ -> error "mceChannel: index out of range")
 {-# INLINABLE mceChannel #-}
 
 mce :: [UGen] -> UGen
 mce gs =
-  case gs of
-    [g] -> g
-    _   -> G (fmap MCEV (mapM unG gs))
+  G (do let f (!len,acc) g = do
+              mce_nid <- unG g
+              return (len+1,mce_nid:acc)
+        (len,xs) <- foldlM f (0,[]) gs
+        return (MCEV len (reverse xs)))
 {-# INLINABLE mce #-}
 
 mce2 :: UGen -> UGen -> UGen
-mce2 a b = G ((\x y -> MCEV [x,y]) <$> unG a <*> unG b)
-{-# INLINABLE mce2 #-}
+mce2 a b = G ((\x y -> MCEV 2 [x,y]) <$> unG a <*> unG b)
+{-# INLINE mce2 #-}
 
 dup :: Int -> UGen -> UGen
 dup n = mce . (replicate n)
@@ -617,7 +612,7 @@ isSink ug =
         let f acc nid = do
               g <- lift (lookup_g_node nid dag)
               return (acc || null (g_node_u_outputs g))
-        is_sink <- foldM f False mce_nid0
+        is_sink <- foldlM f False mce_nid0
         return (is_sink, mce_nid0))
 {-# INLINABLE isSink #-}
 

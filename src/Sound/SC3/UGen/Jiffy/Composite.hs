@@ -44,7 +44,7 @@ mix :: UGen -> UGen
 mix g = do
   mce_nid <- g
   case mce_nid of
-    MCEV nids ->
+    MCEV _ nids ->
       let f xs =
             case xs of
               []         -> constant 0
