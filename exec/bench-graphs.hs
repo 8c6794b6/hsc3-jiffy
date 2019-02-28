@@ -99,18 +99,18 @@ bench_g03 =
 g07h :: Int -> S.UGen
 g07h n =
   let d = S.dust 't' KR 2
-      o0 = S.sinOsc AR (S.mce [440,441]) 0 * S.decay d 1
+      o0 = S.sinOsc AR (S.mce2 440 441) 0 * S.decay d 1
       f a b =
         let cg = S.coinGate a 0.012 d
             dt = S.lag (S.tExpRand a 1e-5 0.4 cg) 1.8
         in  clip2 (b + S.hpf (S.delayN b 0.4 dt * 0.8) 20) 1
-      o1 = foldr f o0 [0 .. n]
+      o1 = foldr' f o0 [0 .. n]
   in  S.out 0 (o1 * 0.5)
 
 g07j :: Int -> UGen
 g07j n = do
   d <- share (dust KR 2)
-  let o0 = sinOsc AR (mce [440,441]) 0 * decay d 1
+  let o0 = sinOsc AR (mce2 440 441) 0 * decay d 1
       f _ b = do
         let cg = coinGate 0.012 d
         dt <- share (lag (tExpRand 1e-5 0.4 cg) 1.8)
