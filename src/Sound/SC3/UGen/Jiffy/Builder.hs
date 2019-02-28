@@ -81,7 +81,7 @@ import Sound.SC3.UGen.Jiffy.Builder.Internal
 --
 
 -- | Newtype for UGen graph construction with hash-consing.
-newtype G a = G {unG :: forall s. ReaderT (DAG s) (ST s) a}
+newtype G a = G {unG :: forall s. GraphM s a}
 
 instance Functor G where
   fmap f (G g) = G (fmap f g)
@@ -280,7 +280,7 @@ gnode_to_unode nid node =
 -- | Unwrap the action inside 'G'. This function will store
 -- 'NConstant' values to 'DAG' when found, and return 'NodeId_C'
 -- value instead of the original 'NConstant'.
-runG :: G (MCE NodeId) -> ReaderT (DAG s) (ST s) (MCE NodeId)
+runG :: G (MCE NodeId) -> GraphM s (MCE NodeId)
 runG g =
   let f n = case n of
               NConstant v -> hashconsC (G_Node_C v)
@@ -322,20 +322,21 @@ tr_control name val = G (fmap MCEU (hashconsK node))
 -- (a.k.a. Rose tree), so 'Sound.SC3.UGen.Type.UGen' data type has
 -- recursive 'MCE_U' constructor, to express nested MCE values such as:
 --
---    MCE_U (MCE_Vector [MCE_U (MCE_Vector [...]), ...])
+--   MCE_U (MCE_Vector [MCE_U (MCE_Vector [...]), ...])
 --
--- The 'MCE' data type used here has recursive structure to express such
--- recusive input nodes.
+-- The 'Sound.SC3.UGen.Jiffy.Builder.Internal.MCE' data type used in
+-- 'normalize' has recursive structure to express such recusive input
+-- nodes.
 
 -- | Recursively expand multi channel inputs, and if the number of
 -- outputs were greater than 1, make proxy node ids.
 normalize :: Int
           -- ^ Number of outputs.
-          -> ([NodeId] -> ReaderT (DAG s) (ST s) NodeId)
+          -> ([NodeId] -> GraphM s NodeId)
           -- ^ Function applied to expanded inputs.
           -> [MCE NodeId]
           -- ^ Multi-channel input node ids.
-          -> ReaderT (DAG s) (ST s) (MCE NodeId)
+          -> GraphM s (MCE NodeId)
 normalize n_outputs f inputs = go inputs
   where
     go inputs0 =
@@ -360,13 +361,13 @@ max_mce_degree = foldl' (\c m -> max (mce_degree m) c) 1
 {-# INLINE max_mce_degree #-}
 
 -- | Inner function used in UGen constructor functions.
-mkUGenFn :: Int
-         -> (forall s. DAG s -> ST s UGenId)
+mkUGenFn :: forall s. Int
+         -> (DAG s -> ST s UGenId)
          -> Special
          -> String
-         -> (forall s. [NodeId] -> DAG s -> ST s Rate)
+         -> ([NodeId] -> DAG s -> ST s Rate)
          -> [NodeId]
-         -> ReaderT (DAG g) (ST g) NodeId
+         -> GraphM s NodeId
 mkUGenFn !n_output uid_fn special name rate_fn inputs = do
   dag <- ask
   rate <- lift (rate_fn inputs dag)
@@ -392,7 +393,7 @@ mkUGen :: Int
        -- ^ UGen name.
        -> (forall s. [NodeId] -> DAG s -> ST s Rate)
        -- ^ Function to determine the 'Rate' of UGen
-       -> (forall s. [UGen] -> ReaderT (DAG s) (ST s) [MCE NodeId])
+       -> (forall s. [UGen] -> GraphM s [MCE NodeId])
        -- ^ Function for converting inputs to mce node ids.
        -> [UGen]
        -- ^ Input arguments.
@@ -403,20 +404,25 @@ mkUGen n_output uid_fn special name rate_fn input_fn input_ugens =
         normalize n_output f input_mce_nids)
 {-# INLINABLE mkUGen #-}
 
+-- | Synonym to make 'UGen' binding function.
+type MkUGen
+  = Int
+  -- ^ Number of outputs.
+  -> (forall s. DAG s -> ST s UGenId)
+  -- ^ Function to get 'UGenId'.
+  -> Special
+  -- ^ UGen special.
+  -> String
+  -- ^ UGen name
+  -> (forall s. [NodeId] -> DAG s -> ST s Rate)
+  -- ^ Function to determine the 'Rate' of resulting 'UGen'.
+  -> [UGen]
+  -- ^ Input arguments.
+  -> UGen
+  -- ^ The resulting 'UGen'.
+
 -- | Make simple UGen function.
-mkSimpleUGen :: Int
-             -- ^ Number of outputs.
-             -> (forall s. DAG s -> ST s UGenId)
-             -- ^ Function to get 'UGenId' for 'g_node_u_ugenid' field.
-             -> Special
-             -- ^ UGen special.
-             -> String
-             -- ^ UGen name.
-             -> (forall s. [NodeId] -> DAG s -> ST s Rate)
-             -- ^ Function to determine the 'Rate' of UGen
-             -> [UGen]
-             -- ^ Input arguments.
-             -> UGen
+mkSimpleUGen :: MkUGen
 mkSimpleUGen n_output uid_fn special name rate_fn input_ugens =
   G (do let f = mkUGenFn n_output uid_fn special name rate_fn
         input_mce_nids <- mapM runG input_ugens
@@ -425,20 +431,7 @@ mkSimpleUGen n_output uid_fn special name rate_fn input_ugens =
 
 -- | Like 'mkSimpleUGen', but treats last input argument as channels
 -- array.
-mkChannelsArrayUGen :: Int
-                    -- ^ Number of outputs.
-                    -> (forall s. DAG s -> ST s UGenId)
-                    -- ^ Function to get 'UGenId' for 'g_node_u_ugenid'
-                    -- field.
-                    -> Special
-                    -- ^ UGen special.
-                    -> String
-                    -- ^ UGen name.
-                    -> (forall s. [NodeId] -> DAG s -> ST s Rate)
-                    -- ^ Function to determine the 'Rate' of UGen
-                    -> [UGen]
-                    -- ^ Input arguments.
-                    -> UGen
+mkChannelsArrayUGen :: MkUGen
 mkChannelsArrayUGen n_output uid_fn special name rate_fn input_ugens =
   G (do let f = mkUGenFn n_output uid_fn special name rate_fn
         input_mce_nids <- unChannelsArray input_ugens
@@ -446,22 +439,10 @@ mkChannelsArrayUGen n_output uid_fn special name rate_fn input_ugens =
 {-# INLINABLE mkChannelsArrayUGen #-}
 
 -- | Dedicated UGen constructor function for demand UGen.
-mkDemandUGen :: a
-             -- ^ Number of outputs, actually unused.
-             -> (forall s. DAG s -> ST s UGenId)
-             -- ^ Function to get 'UGenId' for 'g_node_u_ugenid' field.
-             -> Special
-             -- ^ UGen special.
-             -> String
-             -- ^ UGen name.
-             -> (forall s. [NodeId] -> DAG s -> ST s Rate)
-             -- ^ Function to determine the 'Rate' of UGen
-             -> [UGen]
-             -- ^ Input arguments.
-             -> UGen
+mkDemandUGen :: MkUGen
 mkDemandUGen _n_output uid_fn special name rate_fn input_ugens =
-  -- Traversing input ugens first, to get mce degree from the last
-  -- element, for `n_output'.
+  -- Traversing input ugens first, to get 'n_output' from the last
+  -- element via 'mce_degree'.
   G (do (n_output, input_mce_ids) <- undemand input_ugens
         let f = mkUGenFn n_output uid_fn special name rate_fn
         normalize n_output f input_mce_ids)
@@ -572,8 +553,7 @@ maximum_rate is nids dag = do
 {-# INLINE maximum_rate #-}
 
 -- | Input unwrapper for channels array UGens.
-unChannelsArray :: [G (MCE NodeId)]
-                -> ReaderT (DAG s) (ST s) [MCE NodeId]
+unChannelsArray :: [G (MCE NodeId)] -> GraphM s [MCE NodeId]
 unChannelsArray is =
   case is of
     []   -> return []
@@ -582,8 +562,7 @@ unChannelsArray is =
 {-# INLINE unChannelsArray #-}
 
 -- | Input unwrapper for demand UGen.
-undemand :: [G (MCE NodeId)]
-         -> ReaderT (DAG s) (ST s) (Int, [MCE NodeId])
+undemand :: [G (MCE NodeId)] -> GraphM s (Int, [MCE NodeId])
 undemand xs =
   case xs of
     []   -> return (0,[])

@@ -2,8 +2,12 @@
 {-# LANGUAGE RecordWildCards #-}
 -- | Internal of UGen builder.
 module Sound.SC3.UGen.Jiffy.Builder.Internal
-  ( -- * DAG
-    DAG(..)
+  (
+    -- * Internal of synthdef builder
+    GraphM
+
+    -- * DAG
+  , DAG(..)
   , BiMap(..)
   , emptyDAG
   , hashconsC
@@ -187,8 +191,8 @@ data NodeId
   deriving (Eq, Ord, Show)
 
 instance Hashable NodeId where
-  -- Not marking each constructor with optional constructor index value,
-  -- because DAG separates BiMap fields for each constructor.
+  -- Not marking with optional constructor index value, because DAG
+  -- separates BiMap fields for each constructor.
   hashWithSalt s n =
     case n of
       NodeId_C k -> s `hashWithSalt` k
@@ -315,34 +319,37 @@ g_node_rate n =
 -- Hash-consing
 --
 
+-- | Type synonym for synthdef builder internal, 'ReaderT' transformer
+-- with 'DAG' state.
+type GraphM s a = ReaderT (DAG s) (ST s) a
+
 hashcons :: (Int -> NodeId)
          -> (DAG s -> BiMap s G_Node)
          -> G_Node
-         -> ReaderT (DAG s) (ST s) NodeId
+         -> GraphM s NodeId
 hashcons con prj x = do
   dag <- ask
   let bimap = prj dag
   v <- lift (lookup_key x bimap)
   case v of
     Nothing -> lift $ do let ref = hashcount dag
-                         count <- readSTRef ref
-                         let count' = count + 1
-                             con' = con count
-                         insert_at x count bimap
-                         count' `seq` writeSTRef ref count'
-                         return con'
+                         k <- readSTRef ref
+                         let k' = k + 1
+                         insert_at x k bimap
+                         k' `seq` writeSTRef ref k'
+                         return (con k)
     Just k  -> return (con k)
 {-# INLINE hashcons #-}
 
-hashconsC :: G_Node -> ReaderT (DAG s) (ST s) NodeId
+hashconsC :: G_Node -> GraphM s NodeId
 hashconsC = hashcons NodeId_C cmap
 {-# INLINABLE hashconsC #-}
 
-hashconsK :: G_Node -> ReaderT (DAG s) (ST s) NodeId
+hashconsK :: G_Node -> GraphM s NodeId
 hashconsK g = hashcons (flip NodeId_K (g_node_k_type g)) kmap g
 {-# INLINABLE hashconsK #-}
 
-hashconsU :: G_Node -> ReaderT (DAG s) (ST s) NodeId
+hashconsU :: G_Node -> GraphM s NodeId
 hashconsU = hashcons NodeId_U umap
 {-# INLINABLE hashconsU #-}
 
