@@ -50,12 +50,7 @@ module Sound.SC3.UGen.Jiffy.Builder
 -- base
 import Control.Monad.ST (ST, runST)
 import Data.Foldable (foldlM, toList)
-import Data.Function (on)
-import Data.List (sortBy, transpose)
-import Data.STRef (readSTRef)
-
--- hashtables
-import qualified Data.HashTable.Class as HC
+import Data.List (transpose)
 
 -- hsc3
 import Sound.SC3
@@ -63,9 +58,8 @@ import Sound.SC3
   , Sample, Special(..), UGenId(..), Unary(..), UnaryOp(..)
   , Envelope(..), envelope_sc3_array )
 import Sound.SC3.Server.Graphdef (Graphdef(..))
-import Sound.SC3.Server.Graphdef.Graph (graph_to_graphdef)
-import Sound.SC3.UGen.Graph
-  ( U_Graph(..), U_Node(..), ug_add_implicit, {- ug_pv_validate, -} )
+-- import Sound.SC3.Server.Graphdef.Graph (graph_to_graphdef)
+import Sound.SC3.UGen.Graph (U_Graph)
 
 -- transformers
 import Control.Monad.Trans.Class (lift)
@@ -73,13 +67,15 @@ import Control.Monad.Trans.Reader (ReaderT(..), ask)
 
 -- Internal
 import Sound.SC3.Jiffy.Orphan ()
+import Sound.SC3.UGen.Jiffy.Builder.Convert
 import Sound.SC3.UGen.Jiffy.Builder.Internal
+
 
 --
 -- Wrapper newtype
 --
 
--- | Newtype for UGen graph construction with hash-consing.
+-- | Newtype for Synthdef UGen graph construction with hash-consing.
 newtype G a = G {unG :: forall s. GraphM s a}
 
 instance Functor G where
@@ -97,6 +93,7 @@ instance Monad G where
   {-# INLINE return #-}
   G m >>= k = G (m >>= unG . k)
   {-# INLINE (>>=) #-}
+
 
 --
 -- The UGen type and instance declarations
@@ -203,53 +200,18 @@ instance Dump UGen where
 --
 
 ugen_to_graphdef :: String -> UGen -> Graphdef
-ugen_to_graphdef name g =
-  let gr = ugen_to_graph g
-  in  gr `seq` graph_to_graphdef name gr
+ugen_to_graphdef name (G g) =
+  runST (do dag <- emptyDAG
+            _ <- runReaderT g dag
+            dag_to_Graphdef name dag)
+{-# INLINABLE ugen_to_graphdef #-}
 
 ugen_to_graph :: UGen -> U_Graph
 ugen_to_graph (G m) =
-  runST
-    (do dag <- emptyDAG
-        _r <- runReaderT m dag
-        let as_u_nodes f | BiMap _ kt <- f dag =
-              -- Hashtables does not guarantee the order, need to sort.
-              fmap (sortBy (compare `on` u_node_id)) (HC.foldM g [] kt)
-            g acc (k,v) = return (gnode_to_unode k v : acc)
-        cm <- as_u_nodes cmap
-        km <- as_u_nodes kmap
-        um <- as_u_nodes umap
-        count <- readSTRef (hashcount dag)
-        let graph = U_Graph {ug_next_id=count
-                            ,ug_constants=cm
-                            ,ug_controls=km
-                            ,ug_ugens=um}
-        return (ug_add_implicit graph))
+  runST (do dag <- emptyDAG
+            _ <- runReaderT m dag
+            dag_to_U_Graph dag)
 {-# INLINABLE ugen_to_graph #-}
-
-gnode_to_unode :: Int -> G_Node -> U_Node
-gnode_to_unode nid node =
-  case node of
-    G_Node_C {..} ->
-      U_Node_C {u_node_id=nid
-               ,u_node_c_value=g_node_c_value}
-    G_Node_K {..} ->
-      U_Node_K {u_node_id=nid
-               ,u_node_k_rate=g_node_k_rate
-               ,u_node_k_index=g_node_k_index
-               ,u_node_k_name=g_node_k_name
-               ,u_node_k_default=g_node_k_default
-               ,u_node_k_type=g_node_k_type
-               ,u_node_k_meta=Nothing}
-    G_Node_U {..} ->
-      U_Node_U {u_node_id=nid
-               ,u_node_u_rate=g_node_u_rate
-               ,u_node_u_name=g_node_u_name
-               ,u_node_u_inputs=map nid_to_port g_node_u_inputs
-               ,u_node_u_outputs=g_node_u_outputs
-               ,u_node_u_special=g_node_u_special
-               ,u_node_u_ugenid=g_node_u_ugenid}
-{-# INLINABLE gnode_to_unode #-}
 
 --
 -- Constant, control, and UGen constructors
@@ -518,7 +480,7 @@ noId _ = return NoId
 {-# INLINE noId #-}
 
 hashUId :: DAG s -> ST s UGenId
-hashUId = fmap UId . readSTRef . hashcount
+hashUId = fmap UId . sizeBM . umap
 {-# INLINE hashUId #-}
 
 spec0 :: Special
@@ -626,5 +588,5 @@ rate_to_k_type rate =
     IR -> K_IR
     KR -> K_KR
     AR -> K_AR
-    DR -> error "control: DR control"
+    DR -> error "rate_to_ktype: DR control"
 {-# INLINE rate_to_k_type #-}

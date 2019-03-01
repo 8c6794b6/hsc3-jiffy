@@ -25,5 +25,5 @@ g07 n = do
 
 main :: IO ()
 main =
-  let gd = ugen_to_graphdef "g07" (g07 4096)
-  in  print (rnf (encode_graphdef gd))
+  let bs = encode_graphdef (ugen_to_graphdef "g07" (g07 4096))
+  in  print (rnf bs)

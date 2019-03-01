@@ -8,11 +8,16 @@ module Sound.SC3.UGen.Jiffy.Builder.Internal
 
     -- * DAG
   , DAG(..)
-  , BiMap(..)
   , emptyDAG
   , hashconsC
   , hashconsK
   , hashconsU
+
+    -- * BiMap
+  , BiMap(..)
+  , foldBM
+  , toListBM
+  , sizeBM
 
     -- * Node and node ID
   , G_Node(..)
@@ -63,13 +68,20 @@ import Control.Monad.Trans.Reader (ReaderT(..), ask)
 -- Internal
 import Sound.SC3.Jiffy.Orphan ()
 
+--
+-- DAG and its builder
+--
+
+-- | Type synonym for synthdef builder internal, 'ReaderT' transformer
+-- with 'DAG' state.
+type GraphM s a = ReaderT (DAG s) (ST s) a
+
 -- | Data type of directed acyclic graph to construct synthdef.  The
 -- 'BiMap's are separated between constants, control nodes, and ugen
 -- nodes, to keep the hash table small. But the 'Int' value for
 -- bookkeeping lookup-key of 'BiMap's is shared.
 data DAG s =
-  DAG { hashcount :: {-# UNPACK #-} !(STRef s Int)
-      , cmap :: {-# UNPACK #-} !(BiMap s G_Node)
+  DAG { cmap :: {-# UNPACK #-} !(BiMap s G_Node)
       , kmap :: {-# UNPACK #-} !(BiMap s G_Node)
       , umap :: {-# UNPACK #-} !(BiMap s G_Node) }
 
@@ -79,7 +91,7 @@ instance Show (DAG s) where
 -- | Make a new empty 'DAG' in 'ST' monad, with heuristically selected
 -- initial sizes for internal hash tables.
 emptyDAG :: ST s (DAG s)
-emptyDAG = DAG <$> newSTRef 0 <*> empty 16 <*> empty 8 <*> empty 128
+emptyDAG = DAG <$> empty 16 <*> empty 8 <*> empty 128
 
 --
 -- Simple bidirectional map
@@ -87,38 +99,58 @@ emptyDAG = DAG <$> newSTRef 0 <*> empty 16 <*> empty 8 <*> empty 128
 
 -- | Bidirectional map data structure with 'Int' key.
 data BiMap s a =
-  BiMap {-# UNPACK #-} !(HT.HashTable s a Int)
+  BiMap {-# UNPACK #-} !(STRef s Int)
+        {-# UNPACK #-} !(HT.HashTable s a Int)
         {-# UNPACK #-} !(HT.HashTable s Int a)
 
 -- | Create empty 'BiMap' with initial size.
 empty :: Int -- ^ Initial size of hash tables.
       -> ST s (BiMap s a)
-empty n = BiMap <$> HC.newSized n <*> HC.newSized n
+empty n = BiMap <$> newSTRef 0 <*> HC.newSized n <*> HC.newSized n
 {-# INLINE empty #-}
 
 -- | Lookup 'BiMap' with value to find a 'Int' key.
 lookup_key :: (Hashable a, Eq a) => a -> BiMap s a -> ST s (Maybe Int)
-lookup_key !v (BiMap m _) = HC.lookup m v
+lookup_key !v (BiMap _ m _) = HC.lookup m v
 {-# INLINABLE lookup_key #-}
 {-# SPECIALIZE lookup_key
   :: G_Node -> BiMap s G_Node -> ST s (Maybe Int) #-}
 
 -- | Lookup 'Bimap' with 'Int' key to find a value.
 lookup_val :: Int -> BiMap s a -> ST s a
-lookup_val !k (BiMap _ m) = do
+lookup_val !k (BiMap _ _ m) = do
   ret <- HC.lookup m k
   case ret of
     Just v -> return v
     Nothing -> error "lookup_val: key does not exist."
 {-# INLINABLE lookup_val #-}
 
--- | Insert new element to 'Bimap' with given value and key.
-insert_at :: (Hashable a, Eq a) => a -> Int -> BiMap s a -> ST s ()
-insert_at !v !k (BiMap vt kt) =
-  HC.insert vt v k >> HC.insert kt k v
-{-# INLINABLE insert_at #-}
-{-# SPECIALIZE insert_at
-  :: G_Node -> Int -> BiMap s G_Node -> ST s () #-}
+-- | Insert given value to 'Bimap' with new key.
+insert :: (Hashable a, Eq a) => a -> BiMap s a -> ST s Int
+insert !v (BiMap ref vt kt) = do
+  !k <- readSTRef ref
+  HC.insert vt v k
+  HC.insert kt k v
+  let k' = k + 1
+  k' `seq` writeSTRef ref k'
+  return k
+{-# INLINE insert #-}
+
+-- | Fold 'BiMap' with 'Int' key and value.
+foldBM :: (b -> (Int, a) -> ST s b) -> b -> BiMap s a -> ST s b
+foldBM f z (BiMap _ _ kt) = HC.foldM f z kt
+{-# INLINE foldBM #-}
+
+-- | Convert 'Bimap' to list.
+toListBM :: BiMap s a -> ST s [(Int, a)]
+toListBM = foldBM (\as a -> pure (a:as)) []
+{-# INLINE toListBM #-}
+
+-- | Get number of elements stored in 'BiMap'.
+sizeBM :: BiMap s a -> ST s Int
+sizeBM (BiMap ref _ _) = readSTRef ref
+{-# INLINE sizeBM #-}
+
 
 --
 -- Node and node ID
@@ -326,25 +358,15 @@ g_node_rate n =
 -- Hash-consing
 --
 
--- | Type synonym for synthdef builder internal, 'ReaderT' transformer
--- with 'DAG' state.
-type GraphM s a = ReaderT (DAG s) (ST s) a
-
 hashcons :: (Int -> NodeId)
          -> (DAG s -> BiMap s G_Node)
          -> G_Node
          -> GraphM s NodeId
 hashcons con prj x = do
-  dag <- ask
-  let bimap = prj dag
+  bimap <- prj <$> ask
   v <- lift (lookup_key x bimap)
   case v of
-    Nothing -> lift $ do let ref = hashcount dag
-                         k <- readSTRef ref
-                         let k' = k + 1
-                         insert_at x k bimap
-                         k' `seq` writeSTRef ref k'
-                         return (con k)
+    Nothing -> lift (con <$> insert x bimap)
     Just k  -> return (con k)
 {-# INLINE hashcons #-}
 

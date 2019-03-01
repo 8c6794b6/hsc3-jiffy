@@ -23,6 +23,7 @@ library
                        Sound.SC3.UGen.Jiffy.Composite
                        Sound.SC3.UGen.Jiffy.DB
   other-modules:       Sound.SC3.Jiffy.Orphan
+                       Sound.SC3.UGen.Jiffy.Builder.Convert
                        Sound.SC3.UGen.Jiffy.Builder.Internal
                        Sound.SC3.UGen.Jiffy.TH
   build-depends:       base >= 4.12 && < 5
