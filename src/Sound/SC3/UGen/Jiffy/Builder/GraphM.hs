@@ -362,7 +362,7 @@ hashcons :: (Int -> NodeId)
          -> (DAG s -> BiMap s G_Node)
          -> G_Node
          -> GraphM s NodeId
-hashcons con prj x = do
+hashcons con prj !x = do
   bimap <- prj <$> ask
   v <- lift (lookup_key x bimap)
   case v of
@@ -371,7 +371,7 @@ hashcons con prj x = do
 {-# INLINE hashcons #-}
 
 hashconsC :: G_Node -> GraphM s NodeId
-hashconsC = hashcons NodeId_C cmap
+hashconsC g = hashcons NodeId_C cmap g
 {-# INLINABLE hashconsC #-}
 
 hashconsK :: G_Node -> GraphM s NodeId
@@ -379,7 +379,7 @@ hashconsK g = hashcons (flip NodeId_K (g_node_k_type g)) kmap g
 {-# INLINABLE hashconsK #-}
 
 hashconsU :: G_Node -> GraphM s NodeId
-hashconsU = hashcons NodeId_U umap
+hashconsU g = hashcons NodeId_U umap g
 {-# INLINABLE hashconsU #-}
 
 --
