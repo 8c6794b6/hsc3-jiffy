@@ -5,6 +5,5 @@ module Sound.SC3.UGen.Jiffy
   ) where
 
 -- Internal
+import Sound.SC3.UGen.Jiffy.Bindings as All
 import Sound.SC3.UGen.Jiffy.Builder as All
-import Sound.SC3.UGen.Jiffy.Composite as All
-import Sound.SC3.UGen.Jiffy.DB as All

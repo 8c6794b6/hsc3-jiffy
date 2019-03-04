@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE FlexibleInstances #-}
 -- | Hand-written composite UGen functions.
-module Sound.SC3.UGen.Jiffy.Composite
+module Sound.SC3.UGen.Jiffy.Bindings.Composite
   ( mix
   , wrapOut
   ) where
@@ -16,9 +16,9 @@ import Sound.SC3.Server.Command.Plain (d_recv_bytes, s_new)
 
 -- Internal
 import Sound.SC3.Jiffy.Encode (encode_graphdef)
+import Sound.SC3.UGen.Jiffy.Bindings.DB
 import Sound.SC3.UGen.Jiffy.Builder
-import Sound.SC3.UGen.Jiffy.Builder.Internal
-import Sound.SC3.UGen.Jiffy.DB
+import Sound.SC3.UGen.Jiffy.Builder.GraphM
 
 --
 -- Orphan instance

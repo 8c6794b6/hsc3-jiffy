@@ -68,7 +68,7 @@ import Control.Monad.Trans.Reader (ReaderT(..), ask)
 -- Internal
 import Sound.SC3.Jiffy.Orphan ()
 import Sound.SC3.UGen.Jiffy.Builder.Convert
-import Sound.SC3.UGen.Jiffy.Builder.Internal
+import Sound.SC3.UGen.Jiffy.Builder.GraphM
 
 
 --

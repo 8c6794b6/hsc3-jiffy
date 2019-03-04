@@ -5,7 +5,7 @@
 -- Doing similar works done in "Sound.SC3.UGen.DB.Bindings" module, but
 -- with template haskell.
 --
-module Sound.SC3.UGen.Jiffy.TH where
+module Sound.SC3.UGen.Jiffy.Bindings.TH where
 
 -- template-haskell
 import Language.Haskell.TH

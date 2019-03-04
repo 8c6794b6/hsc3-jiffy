@@ -1,7 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RecordWildCards #-}
 -- | Internal of UGen builder.
-module Sound.SC3.UGen.Jiffy.Builder.Internal
+module Sound.SC3.UGen.Jiffy.Builder.GraphM
   (
     -- * Internal of synthdef builder
     GraphM

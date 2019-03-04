@@ -28,7 +28,7 @@ import Sound.SC3.UGen.Graph
 import Sound.SC3.UGen.Type (Sample)
 
 -- Internal
-import Sound.SC3.UGen.Jiffy.Builder.Internal
+import Sound.SC3.UGen.Jiffy.Builder.GraphM
 
 --
 -- DAG to Graphdef

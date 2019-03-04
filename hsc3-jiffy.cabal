@@ -19,13 +19,14 @@ library
                        Sound.SC3.Jiffy.Compat
                        Sound.SC3.Jiffy.Encode
                        Sound.SC3.UGen.Jiffy
+                       Sound.SC3.UGen.Jiffy.Bindings
+                       Sound.SC3.UGen.Jiffy.Bindings.Composite
+                       Sound.SC3.UGen.Jiffy.Bindings.DB
                        Sound.SC3.UGen.Jiffy.Builder
-                       Sound.SC3.UGen.Jiffy.Composite
-                       Sound.SC3.UGen.Jiffy.DB
   other-modules:       Sound.SC3.Jiffy.Orphan
+                       Sound.SC3.UGen.Jiffy.Bindings.TH
                        Sound.SC3.UGen.Jiffy.Builder.Convert
-                       Sound.SC3.UGen.Jiffy.Builder.Internal
-                       Sound.SC3.UGen.Jiffy.TH
+                       Sound.SC3.UGen.Jiffy.Builder.GraphM
   build-depends:       base >= 4.12 && < 5
                      , bytestring
                      , filepath
@@ -62,10 +63,10 @@ benchmark bench-graphs
                      , hsc3-jiffy
   default-language:    Haskell2010
 
-test-suite hsc3-jiffy-test
+test-suite spec
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
-  main-is:             Main.hs
+  main-is:             spec.hs
   build-depends:       base >= 4.10 && < 5
                      , hspec
                      , hsc3
