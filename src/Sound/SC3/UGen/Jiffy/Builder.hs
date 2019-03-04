@@ -320,12 +320,12 @@ mkUGenFn :: forall s. Int
          -> (DAG s -> ST s UGenId)
          -> Special
          -> String
-         -> ([NodeId] -> DAG s -> ST s Rate)
+         -> ([NodeId] -> DAG s -> GraphM s Rate)
          -> [NodeId]
          -> GraphM s NodeId
 mkUGenFn !n_output uid_fn special name rate_fn inputs = do
   dag <- ask
-  rate <- lift (rate_fn inputs dag)
+  rate <- rate_fn inputs dag
   uid <- lift (uid_fn dag)
   let outputs = replicate n_output rate
   hashconsU (G_Node_U {g_node_u_rate=rate
@@ -346,7 +346,7 @@ mkUGen :: Int
        -- ^ UGen special.
        -> String
        -- ^ UGen name.
-       -> (forall s. [NodeId] -> DAG s -> ST s Rate)
+       -> (forall s. [NodeId] -> DAG s -> GraphM s Rate)
        -- ^ Function to determine the 'Rate' of UGen
        -> (forall s. [UGen] -> GraphM s [MCE NodeId])
        -- ^ Function for converting inputs to mce node ids.
@@ -369,7 +369,7 @@ type MkUGen
   -- ^ UGen special.
   -> String
   -- ^ UGen name
-  -> (forall s. [NodeId] -> DAG s -> ST s Rate)
+  -> (forall s. [NodeId] -> DAG s -> GraphM s Rate)
   -- ^ Function to determine the 'Rate' of resulting 'UGen'.
   -> [UGen]
   -- ^ Input arguments.
@@ -412,7 +412,7 @@ unary_op_ugen_with fn op a =
                 [NConstant v] -> return $ NConstant (fn v)
                 [nid0] -> do
                   dag <- ask
-                  n0 <- lift (lookup_g_node nid0 dag)
+                  n0 <- lookup_g_node nid0 dag
                   let rate = g_node_rate n0
                       opnum = fromEnum op
                       special = Special opnum
@@ -440,17 +440,17 @@ binary_op_ugen_with fn op a b =
                 [NConstant v0, nid1] -> do
                   dag <- ask
                   nid0' <- hashconsC (G_Node_C v0)
-                  n1 <- lift (lookup_g_node nid1 dag)
+                  n1 <- lookup_g_node nid1 dag
                   mkU (max IR (g_node_rate n1)) [nid0',nid1]
                 [nid0, NConstant v1] -> do
                   dag <- ask
-                  n0 <- lift (lookup_g_node nid0 dag)
+                  n0 <- lookup_g_node nid0 dag
                   nid1' <- hashconsC (G_Node_C v1)
                   mkU (max (g_node_rate n0) IR) [nid0,nid1']
                 [nid0, nid1] -> do
                   dag <- ask
-                  n0 <- lift (lookup_g_node nid0 dag)
-                  n1 <- lift (lookup_g_node nid1 dag)
+                  n0 <- lookup_g_node nid0 dag
+                  n1 <- lookup_g_node nid1 dag
                   mkU (max (g_node_rate n0) (g_node_rate n1)) inputs
                 _ -> error "binary_op_ugen_with: bad inputs"
             mkU rate inputs =
@@ -487,19 +487,19 @@ spec0 :: Special
 spec0 = Special 0
 {-# INLINE spec0 #-}
 
-const_rate :: Rate -> a -> b -> ST s Rate
+const_rate :: Rate -> a -> b -> GraphM s Rate
 const_rate !r _ _ = return r
 {-# INLINE const_rate #-}
 
 -- | Get rate from index of 'NodeId' argument.
-get_rate_at :: Int -> [NodeId] -> DAG s -> ST s Rate
+get_rate_at :: Int -> [NodeId] -> DAG s -> GraphM s Rate
 get_rate_at !i nids dag = do
   n <- lookup_g_node (nids !! i) dag
   return $ g_node_rate n
 {-# INLINE get_rate_at #-}
 
 -- | Get maximum rate from selected node ids by input argument indices.
-maximum_rate :: [Int] -> [NodeId] -> DAG s -> ST s Rate
+maximum_rate :: [Int] -> [NodeId] -> DAG s -> GraphM s Rate
 maximum_rate is nids dag = do
   let f !current !i = do
         node <- lookup_g_node (nids !! i) dag
@@ -572,7 +572,7 @@ isSink ug =
   G (do mce_nid0 <- unG ug
         dag <- ask
         let f acc nid = do
-              g <- lift (lookup_g_node nid dag)
+              g <- lookup_g_node nid dag
               return (acc || null (g_node_u_outputs g))
         is_sink <- foldlM f False mce_nid0
         return (is_sink, mce_nid0))

@@ -326,14 +326,14 @@ nid_value nid =
     NConstant v -> error ("nid_value: constant " ++ show v)
 {-# INLINE nid_value #-}
 
-lookup_g_node :: NodeId -> DAG s -> ST s G_Node
+lookup_g_node :: NodeId -> DAG s -> GraphM s G_Node
 lookup_g_node nid dag =
-  case nid of
-    NodeId_C k -> lookup_val k (cmap dag)
-    NodeId_K k _ -> lookup_val k (kmap dag)
-    NodeId_U k -> lookup_val k (umap dag)
-    NodeId_P k _ -> lookup_val k (umap dag)
-    NConstant v -> error ("lookup_g_node: constant " ++ show v)
+  lift (case nid of
+          NodeId_C k -> lookup_val k (cmap dag)
+          NodeId_K k _ -> lookup_val k (kmap dag)
+          NodeId_U k -> lookup_val k (umap dag)
+          NodeId_P k _ -> lookup_val k (umap dag)
+          NConstant v -> error ("lookup_g_node: constant " ++ show v))
 {-# INLINE lookup_g_node #-}
 
 nid_to_port :: NodeId -> From_Port
