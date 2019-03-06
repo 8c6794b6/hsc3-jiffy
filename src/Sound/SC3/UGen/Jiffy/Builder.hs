@@ -101,37 +101,14 @@ instance Monad G where
 -- In this module, UGen is a type synonym.
 type UGen = G (MCE NodeId)
 
-instance Num UGen where
-  fromInteger = constant . fromInteger
-  {-# INLINE fromInteger #-}
-  (+) = binary_op_add
-  {-# INLINE (+) #-}
-  (*) = binary_op_ugen_with (*) Mul
-  {-# INLINE (*) #-}
-  (-) = binary_op_ugen_with (-) Sub
-  {-# INLINE (-) #-}
-  abs = unary_op_ugen_with abs Abs
-  {-# INLINE abs #-}
-  signum = unary_op_ugen_with signum Sign
-  {-# INLINE signum #-}
-  negate = unary_op_ugen_with negate Neg
-  {-# INLINE negate #-}
-
-instance Fractional UGen where
-  recip = error "G: recip"
-  (/) = mk_binary_op_ugen FDiv
-  {-# INLINE (/) #-}
-  fromRational = constant . fromRational
-  {-# INLINE fromRational #-}
-
 instance Eq UGen where
   _ == _ = error "G: =="
 
 instance Ord UGen where
   compare _ _ = error "G: compare"
-  min = mk_binary_op_ugen Min
+  min = binary_op_with min Min
   {-# INLINE min #-}
-  max = mk_binary_op_ugen Max
+  max = binary_op_with max Max
   {-# INLINE max #-}
 
 instance Enum UGen where
@@ -150,23 +127,68 @@ instance Enum UGen where
     in  takeWhile (p (m + (n'-n)/2)) (enumFromThen n n')
   {-# INLINE enumFromThenTo #-}
 
+instance Num UGen where
+  fromInteger = constant . fromInteger
+  {-# INLINE fromInteger #-}
+  (+) = binary_op_add
+  {-# INLINE (+) #-}
+  (*) = binary_op_with (*) Mul
+  {-# INLINE (*) #-}
+  (-) = binary_op_with (-) Sub
+  {-# INLINE (-) #-}
+  abs = unary_op_with abs Abs
+  {-# INLINE abs #-}
+  signum = unary_op_with signum Sign
+  {-# INLINE signum #-}
+  negate = unary_op_with negate Neg
+  {-# INLINE negate #-}
+
 instance Real UGen where
   toRational = error "G: toRational"
 
+instance Fractional UGen where
+  recip = unary_op_with recip Recip
+  {-# INLINE recip #-}
+  (/) = binary_op_with (/) FDiv
+  {-# INLINE (/) #-}
+  fromRational = constant . fromRational
+  {-# INLINE fromRational #-}
+
 instance Floating UGen where
   pi = constant pi
-  exp = error "G: exp"
-  log = error "G: log"
-  sin = error "G: sin"
-  cos = error "G: cos"
-  asin = error "G: asin"
-  acos = error "G: acos"
-  atan = error "G: atan"
-  sinh = error "G: sinh"
-  cosh = error "G: cosh"
-  asinh = error "G: asinh"
-  acosh = error "G: acosh"
-  atanh = error "G: atanh"
+  {-# INLINE pi #-}
+  exp = unary_op_with exp Exp
+  {-# INLINE exp #-}
+  log = unary_op_with log Log
+  {-# INLINE log #-}
+  sqrt = unary_op_with sqrt Sqrt
+  {-# INLINE sqrt #-}
+  (**) = binary_op_with (**) Pow
+  {-# INLINE (**) #-}
+  logBase a b = log b / log a
+  {-# INCLUDE logBase #-}
+  sin = unary_op_with sin Sin
+  {-# INLINE sin #-}
+  cos = unary_op_with cos Cos
+  {-# INLINE cos #-}
+  tan = unary_op_with tan Tan
+  {-# INLINE tan #-}
+  asin = unary_op_with asin ArcSin
+  {-# INLINE asin #-}
+  acos = unary_op_with acos ArcCos
+  {-# INLINE acos #-}
+  atan = unary_op_with atan ArcTan
+  {-# INLINE atan #-}
+  sinh = unary_op_with sinh SinH
+  {-# INLINE sinh #-}
+  cosh = unary_op_with cosh CosH
+  {-# INLINE cosh #-}
+  asinh x = log (sqrt (x*x+1) + x)
+  {-# INLINE asinh #-}
+  acosh x = log (sqrt (x*x-1) + x)
+  {-# INLINE acosh #-}
+  atanh x = (log (1+x) - log (1-x)) / 2
+  {-# INLINE atanh #-}
 
 instance RealFrac UGen where
   properFraction = error "G: properfraction"
@@ -175,24 +197,36 @@ instance RealFrac UGen where
   ceiling = error "G: ceiling"
   floor = error "G: floor"
 
+instance Integral UGen where
+  quot = mk_binary_op_ugen IDiv
+  {-# INLINE quot #-}
+  rem = mk_binary_op_ugen Mod
+  {-# INLINE rem #-}
+  quotRem a b = (quot a b, rem a b)
+  {-# INLINE quotRem #-}
+  div = mk_binary_op_ugen IDiv
+  {-# INLINE div #-}
+  mod = mk_binary_op_ugen Mod
+  {-# INLINE mod #-}
+  toInteger = error "G: toInteger"
+
 instance UnaryOp UGen where
-  cubed = unary_op_ugen_with cubed Cubed
+  cubed = unary_op_with cubed Cubed
   {-# INLINE cubed #-}
-  midiCPS = unary_op_ugen_with midiCPS MIDICPS
+  midiCPS = unary_op_with midiCPS MIDICPS
   {-# INLINE midiCPS #-}
-  cpsMIDI = unary_op_ugen_with cpsMIDI CPSMIDI
+  cpsMIDI = unary_op_with cpsMIDI CPSMIDI
   {-# INLINE cpsMIDI #-}
-  midiRatio = unary_op_ugen_with midiRatio MIDIRatio
+  midiRatio = unary_op_with midiRatio MIDIRatio
   {-# INLINE midiRatio #-}
-  ratioMIDI = unary_op_ugen_with ratioMIDI RatioMIDI
+  ratioMIDI = unary_op_with ratioMIDI RatioMIDI
   {-# INLINE ratioMIDI #-}
 
 instance BinaryOp UGen where
-  clip2 = binary_op_ugen_with clip2 Clip2
+  clip2 = binary_op_with clip2 Clip2
 
 instance Dump UGen where
   dumpString = dumpString . ugen_to_graphdef "<dump>"
-
 
 --
 -- Converting to U_Graph and Graphdef
@@ -261,7 +295,13 @@ control rate name val = G (fmap MCEU (hashconsK node))
                     ,g_node_k_index=Nothing
                     ,g_node_k_name=name
                     ,g_node_k_default=val
-                    ,g_node_k_type=rate_to_k_type rate}
+                    ,g_node_k_type=k_type}
+    k_type =
+      case rate of
+        IR -> K_IR
+        KR -> K_KR
+        AR -> K_AR
+        DR -> error "rate_to_ktype: DR control"
 {-# INLINABLE control #-}
 
 -- | Create trigger control.
@@ -404,8 +444,8 @@ mkDemandUGen _n_output uid_fn special name rate_fn input_ugens =
 
 -- | Make a unary operator UGen, with constant folding function applied
 -- to 'NConstant' input values.
-unary_op_ugen_with :: (Sample -> Sample) -> Unary -> UGen -> UGen
-unary_op_ugen_with fn op a =
+unary_op_with :: (Sample -> Sample) -> Unary -> UGen -> UGen
+unary_op_with fn op a =
   G (do let f inputs =
               case inputs of
                 [NConstant v] -> return $ NConstant (fn v)
@@ -421,17 +461,17 @@ unary_op_ugen_with fn op a =
                                       ,g_node_u_outputs=[rate]
                                       ,g_node_u_special=special
                                       ,g_node_u_ugenid=NoId})
-                _ -> error "unary_op_ugen_with: bad input"
+                _ -> error "unary_op_with: bad input"
         input_mce_nid <- unG a
         normalize 1 f [input_mce_nid])
-{-# INLINEABLE unary_op_ugen_with #-}
+{-# INLINEABLE unary_op_with #-}
 
 -- | Make a binary operator UGen, with constant folding function applied
 -- to 'NConstant' input values.
-binary_op_ugen_with :: (Sample -> Sample -> Sample)
-                    -> Binary
-                    -> UGen -> UGen -> UGen
-binary_op_ugen_with fn op a b =
+binary_op_with :: (Sample -> Sample -> Sample)
+               -> Binary
+               -> UGen -> UGen -> UGen
+binary_op_with fn op a b =
   G (do let f inputs =
               case inputs of
                 [NConstant v0, NConstant v1] ->
@@ -451,7 +491,7 @@ binary_op_ugen_with fn op a b =
                   n0 <- lookup_g_node nid0 dag
                   n1 <- lookup_g_node nid1 dag
                   mkU (max (g_node_rate n0) (g_node_rate n1)) inputs
-                _ -> error "binary_op_ugen_with: bad inputs"
+                _ -> error "binary_op_with: bad inputs"
             mkU rate inputs =
               hashconsU (G_Node_U {g_node_u_rate=rate
                                   ,g_node_u_name="BinaryOpUGen"
@@ -464,7 +504,7 @@ binary_op_ugen_with fn op a b =
         a' <- unG a
         b' <- unG b
         normalize 1 f [a',b'])
-{-# INLINE binary_op_ugen_with #-}
+{-# INLINE binary_op_with #-}
 
 -- Note [Synthdef optimization and graph rewrite]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -725,16 +765,3 @@ isSink ug =
         is_sink <- foldlM f False mce_nid0
         return (is_sink, mce_nid0))
 {-# INLINABLE isSink #-}
-
---
--- Auxilary
---
-
-rate_to_k_type :: Rate -> K_Type
-rate_to_k_type rate =
-  case rate of
-    IR -> K_IR
-    KR -> K_KR
-    AR -> K_AR
-    DR -> error "rate_to_ktype: DR control"
-{-# INLINE rate_to_k_type #-}
