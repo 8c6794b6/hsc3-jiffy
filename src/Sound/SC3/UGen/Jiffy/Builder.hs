@@ -130,11 +130,11 @@ instance Enum UGen where
 instance Num UGen where
   fromInteger = constant . fromInteger
   {-# INLINE fromInteger #-}
-  (+) = binary_op_add
+  (+) = binary_add
   {-# INLINE (+) #-}
   (*) = binary_op_with (*) Mul
   {-# INLINE (*) #-}
-  (-) = binary_op_with (-) Sub
+  (-) = binary_sub
   {-# INLINE (-) #-}
   abs = unary_op_with abs Abs
   {-# INLINE abs #-}
@@ -198,15 +198,15 @@ instance RealFrac UGen where
   floor = error "G: floor"
 
 instance Integral UGen where
-  quot = mk_binary_op_ugen IDiv
+  quot = binary_op IDiv
   {-# INLINE quot #-}
-  rem = mk_binary_op_ugen Mod
+  rem = binary_op Mod
   {-# INLINE rem #-}
   quotRem a b = (quot a b, rem a b)
   {-# INLINE quotRem #-}
-  div = mk_binary_op_ugen IDiv
+  div = binary_op IDiv
   {-# INLINE div #-}
-  mod = mk_binary_op_ugen Mod
+  mod = binary_op Mod
   {-# INLINE mod #-}
   toInteger = error "G: toInteger"
 
@@ -506,6 +506,14 @@ binary_op_with fn op a b =
         normalize 1 f [a',b'])
 {-# INLINE binary_op_with #-}
 
+binary_op :: Binary -> UGen -> UGen -> UGen
+binary_op op a b = mkSimpleUGen 1 noId special name r_fn [a,b]
+  where
+    special = Special (fromEnum op)
+    name = "BinaryOpUGen"
+    r_fn = maximum_rate [0,1]
+{-# INLINABLE binary_op #-}
+
 -- Note [Synthdef optimization and graph rewrite]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 --
@@ -515,29 +523,27 @@ binary_op_with fn op a b =
 -- 'UGen' to Graphdef or U_Graph performs dead code elimination to
 -- remove such unused UGen nodes from DAG.
 
-binary_op_add :: UGen -> UGen -> UGen
-binary_op_add a b =
+binary_add :: UGen -> UGen -> UGen
+binary_add a b =
   G (do a' <- unG a
         b' <- unG b
-        normalize 1 add_ugens_inner [a',b'])
-{-# INLINE binary_op_add #-}
+        normalize 1 binary_add_inner [a',b'])
+{-# INLINE binary_add #-}
 
-add_ugens_inner :: [NodeId] -> GraphM s NodeId
-add_ugens_inner inputs =
+binary_add_inner :: [NodeId] -> GraphM s NodeId
+binary_add_inner inputs =
   case inputs of
     [NConstant a, NConstant b] -> return (NConstant (a+b))
     [NConstant a, nid1] -> do
-      dag <- ask
       nid0 <- hashconsC (G_Node_C a)
-      n1 <- lookup_g_node nid1 dag
+      n1 <- ask >>= lookup_g_node nid1
       mb_nid <- maybe_optimize_add (pre nid0) nid0 IR n1
       case mb_nid of
         Just nid -> return nid
         Nothing  -> mkU (max IR (g_node_rate n1)) [nid0,nid1]
     [nid0, NConstant b] -> do
-      dag <- ask
       nid1 <- hashconsC (G_Node_C b)
-      n0 <- lookup_g_node nid0 dag
+      n0 <- ask >>= lookup_g_node nid0
       mb_nid <- maybe_optimize_add (post nid1) nid1 IR n0
       case mb_nid of
         Just nid -> return nid
@@ -556,7 +562,7 @@ add_ugens_inner inputs =
           case mb_nid1 of
             Just nid -> return nid
             Nothing  -> mkU (max rate0 rate1) [nid0, nid1]
-    _ -> error "add_ugens_inner: bad inputs"
+    _ -> error "binary_add_inner: bad inputs"
   where
     pre x xs = x:xs
     post x xs = xs <> [x]
@@ -567,14 +573,14 @@ add_ugens_inner inputs =
                           ,g_node_u_outputs=[rate]
                           ,g_node_u_special=Special (fromEnum Add)
                           ,g_node_u_ugenid=NoId})
-{-# INLINE add_ugens_inner #-}
+{-# INLINE binary_add_inner #-}
 
 maybe_optimize_add :: ([NodeId] -> [NodeId])
                    -> NodeId
                    -> Rate
                    -> G_Node
                    -> GraphM s (Maybe NodeId)
-maybe_optimize_add f nid other_rate gn =
+maybe_optimize_add f other_nid other_rate gn =
   case gn of
     G_Node_U {..}
       | is_sum3_node gn ->
@@ -598,7 +604,7 @@ maybe_optimize_add f nid other_rate gn =
                return (i, node)
             mul_add ins =
               let gn' = gn {g_node_u_name="MulAdd"
-                           ,g_node_u_inputs=ins++[nid]
+                           ,g_node_u_inputs=ins++[other_nid]
                            ,g_node_u_special=spec0
                            ,g_node_u_rate=max g_node_u_rate other_rate}
               in  Just <$> hashconsU gn'
@@ -616,12 +622,69 @@ maybe_optimize_add f nid other_rate gn =
           _ -> return Nothing
       | is_neg_node gn ->
         let gn' = gn {g_node_u_name="BinaryOpUGen"
-                     ,g_node_u_inputs=nid:g_node_u_inputs
+                     ,g_node_u_inputs=other_nid:g_node_u_inputs
                      ,g_node_u_special=Special (fromEnum Sub)
                      ,g_node_u_rate=max g_node_u_rate other_rate}
         in  Just <$> hashconsU gn'
     _ -> return Nothing
 {-# INLINE maybe_optimize_add #-}
+
+binary_sub :: UGen -> UGen -> UGen
+binary_sub a b =
+  G (do a' <- unG a
+        b' <- unG b
+        normalize 1 binary_sub_inner [a',b'])
+{-# INLINE binary_sub #-}
+
+binary_sub_inner :: [NodeId] -> GraphM s NodeId
+binary_sub_inner inputs =
+  case inputs of
+    [NConstant a, NConstant b] -> return (NConstant (a - b))
+    [NConstant a, nid1] -> do
+      nid0 <- hashconsC (G_Node_C a)
+      n1 <- ask >>= lookup_g_node nid1
+      mb_nid <- maybe_optimize_sub nid0 IR n1
+      case mb_nid of
+        Just nid -> return nid
+        Nothing  -> mkU (max IR (g_node_rate n1)) [nid0,nid1]
+    [nid0, NConstant b] -> do
+      nid1 <- hashconsC (G_Node_C b)
+      n0 <- ask >>= lookup_g_node nid0
+      mkU (max IR (g_node_rate n0)) [nid0,nid1]
+    [nid0,nid1] -> do
+      dag <- ask
+      n0 <- lookup_g_node nid0 dag
+      n1 <- lookup_g_node nid1 dag
+      let r0 = g_node_rate n0
+      mb_nid <- maybe_optimize_sub nid0 r0 n1
+      case mb_nid of
+        Just nid -> return nid
+        Nothing  -> mkU (max r0 (g_node_rate n1)) [nid0,nid1]
+    _ -> error "binary_sub_inner"
+  where
+    mkU rate ins =
+      hashconsU (G_Node_U {g_node_u_rate=rate
+                          ,g_node_u_name="BinaryOpUGen"
+                          ,g_node_u_inputs=ins
+                          ,g_node_u_outputs=[rate]
+                          ,g_node_u_special=Special (fromEnum Sub)
+                          ,g_node_u_ugenid=NoId})
+{-# INLINE binary_sub_inner #-}
+
+maybe_optimize_sub :: NodeId
+                   -> Rate
+                   -> G_Node
+                   -> GraphM s (Maybe NodeId)
+maybe_optimize_sub other_nid other_rate gn =
+  case gn of
+    G_Node_U {..} | is_neg_node gn ->
+      let gn' = gn {g_node_u_name="BinaryOpUGen"
+                   ,g_node_u_inputs=other_nid:g_node_u_inputs
+                   ,g_node_u_outputs=[max other_rate g_node_u_rate]
+                   ,g_node_u_special=Special (fromEnum Add)}
+      in  Just <$> hashconsU gn'
+    _ -> return Nothing
+{-# INLINE maybe_optimize_sub #-}
 
 is_sum3_node :: G_Node -> Bool
 is_sum3_node gn
@@ -635,7 +698,7 @@ is_add_node = is_binop_node Add
 
 is_mul_node :: G_Node -> Bool
 is_mul_node = is_binop_node Mul
-{-# INCLUDE is_mul_node #-}
+{-# INLINE is_mul_node #-}
 
 is_neg_node :: G_Node -> Bool
 is_neg_node gn
@@ -654,14 +717,6 @@ is_binop_node op gn
   = "BinaryOpUGen" == g_node_u_name
   | otherwise = False
 {-# INLINE is_binop_node #-}
-
-mk_binary_op_ugen :: Binary -> UGen -> UGen -> UGen
-mk_binary_op_ugen op a b = mkSimpleUGen 1 noId special name r_fn [a,b]
-  where
-    special = Special (fromEnum op)
-    name = "BinaryOpUGen"
-    r_fn = maximum_rate [0,1]
-{-# INLINABLE mk_binary_op_ugen #-}
 
 noId :: DAG s -> ST s UGenId
 noId _ = return NoId
