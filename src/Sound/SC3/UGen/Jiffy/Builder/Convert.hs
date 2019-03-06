@@ -7,11 +7,12 @@ module Sound.SC3.UGen.Jiffy.Builder.Convert
   ) where
 
 -- base
-import Control.Monad (zipWithM_)
+import Control.Monad (zipWithM_, when)
 import Control.Monad.ST (ST)
 import Data.Foldable (foldl')
 import Data.Function (on)
 import Data.List (groupBy, sortBy)
+import Data.STRef (modifySTRef', readSTRef)
 
 -- hashtable
 import qualified Data.HashTable.Class as H
@@ -48,7 +49,8 @@ dag_to_Graphdef name dag = do
   let ks = zipWith g_node_k_to_control [0..] gnks
   implicit_ugens <- update_ktable kt gnks
   let shift = length implicit_ugens
-  us <- sortPairs <$> foldBM (acc_ugens kt shift) [] (umap dag)
+  ut <- eliminate_dead_code (umap dag)
+  us <- sortPairs <$> foldBM (acc_ugens kt shift) [] ut
   return (Graphdef {graphdef_name=ascii name
                    ,graphdef_constants=cs
                    ,graphdef_controls=ks
@@ -160,8 +162,9 @@ dag_to_U_Graph (DAG cm km um) = do
   ks <- work 0 km
   nk <- sizeBM km
 
-  us <- work 0 um
-  nu <- sizeBM um
+  um' <- eliminate_dead_code um
+  us <- work 0 um'
+  nu <- sizeBM um'
 
   let graph = U_Graph {ug_next_id=count
                       ,ug_constants=cs
@@ -194,3 +197,72 @@ gnode_to_unode nid node =
                ,u_node_u_special=g_node_u_special
                ,u_node_u_ugenid=g_node_u_ugenid}
 {-# INLINE gnode_to_unode #-}
+
+--
+-- Dead code elimination
+--
+
+-- | Live node index, from old ID to new ID.
+type LNI s = HT.HashTable s Int Int
+
+-- | Perform dead code elimination for the key-to-value hashtable of
+-- 'BiMap'.
+eliminate_dead_code :: BiMap s G_Node -> ST s (BiMap s G_Node)
+eliminate_dead_code t@(BiMap ref _ kt) = do
+  lni <- readSTRef ref >>= H.newSized
+  H.mapM_ (collect_live_id lni) kt
+  n_removed <- H.foldM (remove_unused_node lni kt) 0 kt
+  when (0 < n_removed)
+       (do H.mapM_ (update_input_index lni kt) kt
+           modifySTRef' ref (\x -> x - n_removed))
+  return t
+{-# INLINABLE eliminate_dead_code #-}
+
+collect_live_id :: LNI s -> (a, G_Node) -> ST s ()
+collect_live_id lni (_,gn) = mapM_ insert_id (g_node_u_inputs gn)
+  where
+    insert_id nid =
+      case nid of
+        NodeId_U k   -> H.insert lni k 0
+        NodeId_P k _ -> H.insert lni k 0
+        _            -> return ()
+{-# INLINE collect_live_id #-}
+
+remove_unused_node :: LNI s -> BiMapKT s G_Node
+                   -> Int -> (Int, G_Node) -> ST s Int
+remove_unused_node lni kt n_removed (!k,gn) = do
+  mb_found <- H.lookup lni k
+  case mb_found of
+    Nothing | not (null (g_node_u_outputs gn)) -> do
+      H.delete kt k
+      H.insert lni k (k-n_removed)
+      let !n_removed' = n_removed + 1
+      return n_removed'
+    _  -> do
+      H.insert lni k (k-n_removed)
+      return n_removed
+{-# INLINE remove_unused_node #-}
+
+update_input_index :: LNI s -> BiMapKT s G_Node
+                   -> (Int,G_Node) -> ST s ()
+update_input_index lni kt (!k,gn) =
+  case gn of
+    G_Node_U {..} -> do
+      inputs' <- mapM lookup_nid g_node_u_inputs
+      H.insert kt k $! gn {g_node_u_inputs=inputs'}
+    _ -> return ()
+  where
+    lookup_nid nid =
+      case nid of
+        NodeId_U old -> do
+          mb_new <- H.lookup lni old
+          case mb_new of
+            Just new -> return (NodeId_U new)
+            Nothing  -> error ("lookup_nid: missing " ++ show old)
+        NodeId_P old p -> do
+          mb_new <- H.lookup lni old
+          case mb_new of
+            Just new -> return (NodeId_P new p)
+            Nothing -> error ("lookup_nid: missing" ++ show old)
+        _ -> return nid
+{-# INLINE update_input_index #-}

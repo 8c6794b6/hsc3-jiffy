@@ -15,6 +15,8 @@ module Sound.SC3.UGen.Jiffy.Builder.GraphM
 
     -- * BiMap
   , BiMap(..)
+  , BiMapVT
+  , BiMapKT
   , foldBM
   , toListBM
   , sizeBM
@@ -100,8 +102,14 @@ emptyDAG = DAG <$> empty 16 <*> empty 8 <*> empty 128
 -- | Bidirectional map data structure with 'Int' key.
 data BiMap s a =
   BiMap {-# UNPACK #-} !(STRef s Int)
-        {-# UNPACK #-} !(HT.HashTable s a Int)
-        {-# UNPACK #-} !(HT.HashTable s Int a)
+        {-# UNPACK #-} !(BiMapVT s a)
+        {-# UNPACK #-} !(BiMapKT s a)
+
+-- | Value-to-key table in 'BiMap'.
+type BiMapVT s a = HT.HashTable s a Int
+
+-- | Key-to-value table in 'BiMap'.
+type BiMapKT s a = HT.HashTable s Int a
 
 -- | Create empty 'BiMap' with initial size.
 empty :: Int -- ^ Initial size of hash tables.

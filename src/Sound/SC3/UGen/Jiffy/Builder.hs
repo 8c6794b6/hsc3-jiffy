@@ -58,7 +58,6 @@ import Sound.SC3
   , Sample, Special(..), UGenId(..), Unary(..), UnaryOp(..)
   , Envelope(..), envelope_sc3_array )
 import Sound.SC3.Server.Graphdef (Graphdef(..))
--- import Sound.SC3.Server.Graphdef.Graph (graph_to_graphdef)
 import Sound.SC3.UGen.Graph (U_Graph)
 
 -- transformers
@@ -105,7 +104,7 @@ type UGen = G (MCE NodeId)
 instance Num UGen where
   fromInteger = constant . fromInteger
   {-# INLINE fromInteger #-}
-  (+) = binary_op_ugen_with (+) Add
+  (+) = binary_op_add
   {-# INLINE (+) #-}
   (*) = binary_op_ugen_with (*) Mul
   {-# INLINE (*) #-}
@@ -298,20 +297,20 @@ normalize :: Int
           -> [MCE NodeId]
           -- ^ Multi-channel input node ids.
           -> GraphM s (MCE NodeId)
-normalize n_outputs f inputs = go inputs
+normalize n_outputs f = go
   where
-    go inputs0 =
-      case mce_max_degree inputs0 of
+    go inputs =
+      case mce_max_degree inputs of
         1 -> do
-          nid <- f (concatMap toList inputs0)
+          nid <- f (concatMap toList inputs)
           if n_outputs > 1
              then let mk_nodeid_p = MCEU . NodeId_P (nid_value nid)
                       nids = map mk_nodeid_p [0..(n_outputs-1)]
                   in  return (MCEV n_outputs nids)
              else return (MCEU nid)
         n -> do
-          let inputs1 = map (mce_list . mce_extend n) inputs0
-          fmap (MCEV n) (mapM go (transpose inputs1))
+          let inputs' = map (mce_list . mce_extend n) inputs
+          MCEV n <$> mapM go (transpose inputs')
     {-# INLINE go #-}
 {-# INLINABLE normalize #-}
 
@@ -467,6 +466,155 @@ binary_op_ugen_with fn op a b =
         normalize 1 f [a',b'])
 {-# INLINE binary_op_ugen_with #-}
 
+-- Note [Synthdef optimization and graph rewrite]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+--
+-- Some of the binary operator and unary operators could be optimized in
+-- synthdef graph. When optimized replacement UGens are inserted to DAG,
+-- it is possible to leave some unused UGens. The function converting
+-- 'UGen' to Graphdef or U_Graph performs dead code elimination to
+-- remove such unused UGen nodes from DAG.
+
+binary_op_add :: UGen -> UGen -> UGen
+binary_op_add a b =
+  G (do a' <- unG a
+        b' <- unG b
+        normalize 1 add_ugens_inner [a',b'])
+{-# INLINE binary_op_add #-}
+
+add_ugens_inner :: [NodeId] -> GraphM s NodeId
+add_ugens_inner inputs =
+  case inputs of
+    [NConstant a, NConstant b] -> return (NConstant (a+b))
+    [NConstant a, nid1] -> do
+      dag <- ask
+      nid0 <- hashconsC (G_Node_C a)
+      n1 <- lookup_g_node nid1 dag
+      mb_nid <- maybe_optimize_add (pre nid0) nid0 IR n1
+      case mb_nid of
+        Just nid -> return nid
+        Nothing  -> mkU (max IR (g_node_rate n1)) [nid0,nid1]
+    [nid0, NConstant b] -> do
+      dag <- ask
+      nid1 <- hashconsC (G_Node_C b)
+      n0 <- lookup_g_node nid0 dag
+      mb_nid <- maybe_optimize_add (post nid1) nid1 IR n0
+      case mb_nid of
+        Just nid -> return nid
+        Nothing  -> mkU (max (g_node_rate n0) IR) [nid0,nid1]
+    [nid0, nid1] -> do
+      dag <- ask
+      n0 <- lookup_g_node nid0 dag
+      n1 <- lookup_g_node nid1 dag
+      let rate0 = g_node_rate n0
+          rate1 = g_node_rate n1
+      mb_nid0 <- maybe_optimize_add (post nid1) nid1 rate1 n0
+      case mb_nid0 of
+        Just nid -> return nid
+        Nothing  -> do
+          mb_nid1 <- maybe_optimize_add (pre nid0) nid0 rate0 n1
+          case mb_nid1 of
+            Just nid -> return nid
+            Nothing  -> mkU (max rate0 rate1) [nid0, nid1]
+    _ -> error "add_ugens_inner: bad inputs"
+  where
+    pre x xs = x:xs
+    post x xs = xs <> [x]
+    mkU rate ins =
+      hashconsU (G_Node_U {g_node_u_rate=rate
+                          ,g_node_u_name="BinaryOpUGen"
+                          ,g_node_u_inputs=ins
+                          ,g_node_u_outputs=[rate]
+                          ,g_node_u_special=Special (fromEnum Add)
+                          ,g_node_u_ugenid=NoId})
+{-# INLINE add_ugens_inner #-}
+
+maybe_optimize_add :: ([NodeId] -> [NodeId])
+                   -> NodeId
+                   -> Rate
+                   -> G_Node
+                   -> GraphM s (Maybe NodeId)
+maybe_optimize_add f nid other_rate gn =
+  case gn of
+    G_Node_U {..}
+      | is_sum3_node gn ->
+        let gn' = gn {g_node_u_name="Sum4"
+                     ,g_node_u_inputs=f g_node_u_inputs
+                     ,g_node_u_rate=max g_node_u_rate other_rate}
+        in  Just <$> hashconsU gn'
+      | is_add_node gn ->
+        let gn' = gn {g_node_u_name="Sum3"
+                     ,g_node_u_inputs=f g_node_u_inputs
+                     ,g_node_u_special=spec0
+                     ,g_node_u_rate=max g_node_u_rate other_rate}
+        in  Just <$> hashconsU gn'
+      | is_mul_node gn -> do
+        -- MulAdd UGen has some constraints for its input arguments. See
+        -- the "canBeMulAdd" class method defined in "BasicOpUGen.sc"
+        -- sclang source file.
+        dag <- ask
+        let get_node_pair i = do
+               node <- lookup_g_node i dag
+               return (i, node)
+            mul_add ins =
+              let gn' = gn {g_node_u_name="MulAdd"
+                           ,g_node_u_inputs=ins++[nid]
+                           ,g_node_u_special=spec0
+                           ,g_node_u_rate=max g_node_u_rate other_rate}
+              in  Just <$> hashconsU gn'
+        inputs <- mapM get_node_pair g_node_u_inputs
+        case inputs of
+          [(nid0, n0), (nid1, n1)]
+            | r0 == AR || (r0 == KR && other_rate_ok)
+            -> mul_add [nid0,nid1]
+            | r1 == AR || (r1 == KR && other_rate_ok)
+            -> mul_add [nid1,nid0]
+           where
+             r0 = g_node_rate n0
+             r1 = g_node_rate n1
+             other_rate_ok = other_rate == IR || other_rate == KR
+          _ -> return Nothing
+      | is_neg_node gn ->
+        let gn' = gn {g_node_u_name="BinaryOpUGen"
+                     ,g_node_u_inputs=nid:g_node_u_inputs
+                     ,g_node_u_special=Special (fromEnum Sub)
+                     ,g_node_u_rate=max g_node_u_rate other_rate}
+        in  Just <$> hashconsU gn'
+    _ -> return Nothing
+{-# INLINE maybe_optimize_add #-}
+
+is_sum3_node :: G_Node -> Bool
+is_sum3_node gn
+  | G_Node_U {..} <- gn = "Sum3" == g_node_u_name
+  | otherwise = False
+{-# INLINE is_sum3_node #-}
+
+is_add_node :: G_Node -> Bool
+is_add_node = is_binop_node Add
+{-# INLINE is_add_node #-}
+
+is_mul_node :: G_Node -> Bool
+is_mul_node = is_binop_node Mul
+{-# INCLUDE is_mul_node #-}
+
+is_neg_node :: G_Node -> Bool
+is_neg_node gn
+  | G_Node_U {..} <- gn
+  , Special n <- g_node_u_special
+  , n == fromEnum Neg
+  = "UnaryOpUGen" == g_node_u_name
+  | otherwise = False
+{-# INLINE is_neg_node #-}
+
+is_binop_node :: Binary -> G_Node -> Bool
+is_binop_node op gn
+  | G_Node_U {..} <- gn
+  , Special n <- g_node_u_special
+  , n == fromEnum op
+  = "BinaryOpUGen" == g_node_u_name
+  | otherwise = False
+{-# INLINE is_binop_node #-}
+
 mk_binary_op_ugen :: Binary -> UGen -> UGen -> UGen
 mk_binary_op_ugen op a b = mkSimpleUGen 1 noId special name r_fn [a,b]
   where
@@ -512,7 +660,7 @@ unChannelsArray :: [G (MCE NodeId)] -> GraphM s [MCE NodeId]
 unChannelsArray is =
   case is of
     []   -> return []
-    j:[] -> mce_list <$> runG j
+    [j]  -> mce_list <$> runG j
     j:js -> (:) <$> runG j <*> unChannelsArray js
 {-# INLINE unChannelsArray #-}
 

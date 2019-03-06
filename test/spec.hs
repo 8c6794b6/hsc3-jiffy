@@ -58,10 +58,10 @@ mrg_graph =
 
 enum_graph :: Spec
 enum_graph = do
-  let j0 = playBuf 2 AR 0 0 0 0 NoLoop DoNothing
-      h0 = S.playBuf 2 AR 0 0 0 0 NoLoop DoNothing
-      j1 = mouseX KR 0 0 Linear 0
-      h1 = S.mouseX KR 0 0 Linear 0
+  let j0 = out 0 (playBuf 2 AR 0 0 0 0 NoLoop DoNothing)
+      h0 = S.out 0 (S.playBuf 2 AR 0 0 0 0 NoLoop DoNothing)
+      j1 = out 0 (mouseX KR 0 0 Linear 0)
+      h1 = S.out 0 (S.mouseX KR 0 0 Linear 0)
   same_graphdef "enum_loop_doneaction" j0 h0
   same_graphdef "enum_warp" j1 h1
 
@@ -85,9 +85,20 @@ controls_graph = do
 
 unary_op_graph :: Spec
 unary_op_graph =
-  let j0 = saw AR (S.midiCPS 67)
-      h0 = S.saw AR (S.midiCPS 67)
+  let j0 = out 0 (saw AR (S.midiCPS (- (constant inf))))
+      h0 = S.out 0 (S.saw AR (S.midiCPS (- (S.constant inf))))
+      inf :: S.Sample
+      inf = 1/0
   in  same_graphdef "constant_folding_with_unary_op" j0 h0
+
+optimize_graph :: Spec
+optimize_graph = do
+  let j0 = out 1 (sinOsc AR 1 1 * decay (tr_control "t" 1) 1 + 1)
+      h0 = S.out 1 (S.sinOsc AR 1 1 * S.decay (S.tr_control "t" 1) 1 + 1)
+  same_graphdef "optimizing_muladd" j0 h0
+  let j1 = let s = sinOsc AR 0 0 in out 0 (s+s+s)
+      h1 = let s = S.sinOsc AR 0 0 in S.out 0 (s+s+s)
+  same_graphdef "optimizing_sum3" j1 h1
 
 main :: IO ()
 main =
@@ -100,4 +111,5 @@ main =
             mrg_graph
             enum_graph
             controls_graph
-            unary_op_graph))
+            unary_op_graph
+            optimize_graph))
