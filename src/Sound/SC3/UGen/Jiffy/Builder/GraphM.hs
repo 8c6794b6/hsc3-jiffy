@@ -25,7 +25,6 @@ module Sound.SC3.UGen.Jiffy.Builder.GraphM
   , G_Node(..)
   , NodeId(..)
   , nid_value
-  , nid_to_port
   , lookup_g_node
   , g_node_rate
 
@@ -35,7 +34,6 @@ module Sound.SC3.UGen.Jiffy.Builder.GraphM
   , mce_degree
   , mce_max_degree
   , mce_list
-  , is_mce_vector
 
     -- * Dumper
   , Dump(..)
@@ -59,7 +57,7 @@ import Sound.SC3
   ( Output, K_Type(..), Rate(..), Sample, Special(..), UGenId )
 import Sound.SC3.Server.Graphdef (Graphdef(..))
 import Sound.SC3.Server.Graphdef.Graph (graph_to_graphdef)
-import Sound.SC3.UGen.Graph (From_Port(..), U_Graph(..))
+import Sound.SC3.UGen.Graph (U_Graph(..))
 import qualified Sound.SC3 as SC3
 import qualified Sound.SC3.UGen.Graph as SC3UG
 
@@ -313,13 +311,6 @@ mce_list m =
     MCEV _ xs -> xs
 {-# INLINE mce_list #-}
 
-is_mce_vector :: MCE a -> Bool
-is_mce_vector m =
-  case m of
-    MCEV {} -> True
-    _       -> False
-{-# INLINABLE is_mce_vector #-}
-
 --
 -- Auxiliary functions for NodeId, DAG, and G_Node
 --
@@ -343,16 +334,6 @@ lookup_g_node nid dag =
           NodeId_P k _ -> lookup_val k (umap dag)
           NConstant v -> error ("lookup_g_node: constant " ++ show v))
 {-# INLINE lookup_g_node #-}
-
-nid_to_port :: NodeId -> From_Port
-nid_to_port nid =
-  case nid of
-    NodeId_C k -> From_Port_C k
-    NodeId_K k t -> From_Port_K k t
-    NodeId_U k -> From_Port_U k Nothing
-    NodeId_P k p -> From_Port_U k (Just p)
-    NConstant v -> error ("nid_to_port: constant " ++ show v)
-{-# INLINE nid_to_port #-}
 
 g_node_rate :: G_Node -> Rate
 g_node_rate n =

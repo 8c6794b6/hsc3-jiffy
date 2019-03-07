@@ -67,6 +67,8 @@ test-suite spec
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             spec.hs
+  other-modules:       ConvertTests
+                       Hsc3Tests
   build-depends:       base >= 4.10 && < 5
                      , hspec
                      , hsc3

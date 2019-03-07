@@ -25,11 +25,13 @@ import Sound.OSC.Datum (ascii)
 import Sound.SC3 (K_Type(..), Special(..))
 import Sound.SC3.Server.Graphdef (Graphdef(..), Control, Input(..), UGen)
 import Sound.SC3.UGen.Graph
-  ( U_Graph(..), U_Node(..), ug_add_implicit, {- ug_pv_validate, -} )
+  ( From_Port(..), U_Graph(..), U_Node(..)
+  , ug_add_implicit, {- ug_pv_validate, -} )
 import Sound.SC3.UGen.Type (Sample)
 
 -- Internal
 import Sound.SC3.UGen.Jiffy.Builder.GraphM
+
 
 --
 -- DAG to Graphdef
@@ -42,15 +44,15 @@ newtype KTable s = KTable (HT.HashTable s Int Input)
 -- graph, to add 'MaxLocalBuf'.
 
 dag_to_Graphdef :: String -> DAG s -> ST s Graphdef
-dag_to_Graphdef name dag = do
-  cs <- sortPairs <$> foldBM acc_constants [] (cmap dag)
-  kt <- sizeBM (kmap dag) >>= emptyKTable
-  gnks <- sortByKType <$> toListBM (kmap dag)
+dag_to_Graphdef name (DAG cm km um) = do
+  cs <- sortPairs <$> foldBM acc_constants [] cm
+  kt <- sizeBM km >>= emptyKTable
+  gnks <- sortByKType <$> toListBM km
   let ks = zipWith g_node_k_to_control [0..] gnks
   implicit_ugens <- update_ktable kt gnks
   let shift = length implicit_ugens
-  ut <- eliminate_dead_code (umap dag)
-  us <- sortPairs <$> foldBM (acc_ugens kt shift) [] ut
+  _ <- eliminate_dead_code um
+  us <- sortPairs <$> foldBM (acc_ugens kt shift) [] um
   return (Graphdef {graphdef_name=ascii name
                    ,graphdef_constants=cs
                    ,graphdef_controls=ks
@@ -150,22 +152,18 @@ convert_inputs (KTable table) shift = mapM f
 
 dag_to_U_Graph :: DAG s -> ST s U_Graph
 dag_to_U_Graph (DAG cm km um) = do
-  -- XXX: Shift node id of control and UGen input in 'gnode_to_unode'.
-  let work o1 bm =
-        sortBy (compare `on` u_node_id) <$> foldBM (g o1) [] bm
-      g o1 acc (k,v) =
-        return (gnode_to_unode (k+o1) v : acc)
-
-  cs <- work 0 cm
+  (_n_removed, lni) <- eliminate_dead_code um
   nc <- sizeBM cm
-
-  ks <- work 0 km
   nk <- sizeBM km
-
-  um' <- eliminate_dead_code um
-  us <- work 0 um'
-  nu <- sizeBM um'
-
+  nu <- sizeBM um
+  let work bm =
+        sortBy (compare `on` u_node_id) <$> foldBM g [] bm
+      g acc (k,v) = do
+        unode <- gnode_to_unode k nc (nc+nk) lni v
+        return (unode:acc)
+  cs <- work cm
+  ks <- work km
+  us <- work um
   let graph = U_Graph {ug_next_id=count
                       ,ug_constants=cs
                       ,ug_controls=ks
@@ -174,29 +172,44 @@ dag_to_U_Graph (DAG cm km um) = do
   return (ug_add_implicit graph)
 {-# INLINABLE dag_to_U_Graph #-}
 
-gnode_to_unode :: Int -> G_Node -> U_Node
-gnode_to_unode nid node =
+gnode_to_unode :: Int -> Int -> Int -> LNI s -> G_Node -> ST s U_Node
+gnode_to_unode nid kshift ushift lni node =
   case node of
     G_Node_C {..} ->
-      U_Node_C {u_node_id=nid
-               ,u_node_c_value=g_node_c_value}
+      return (U_Node_C {u_node_id=nid
+                       ,u_node_c_value=g_node_c_value})
     G_Node_K {..} ->
-      U_Node_K {u_node_id=nid
-               ,u_node_k_rate=g_node_k_rate
-               ,u_node_k_index=g_node_k_index
-               ,u_node_k_name=g_node_k_name
-               ,u_node_k_default=g_node_k_default
-               ,u_node_k_type=g_node_k_type
-               ,u_node_k_meta=Nothing}
-    G_Node_U {..} ->
-      U_Node_U {u_node_id=nid
-               ,u_node_u_rate=g_node_u_rate
-               ,u_node_u_name=g_node_u_name
-               ,u_node_u_inputs=map nid_to_port g_node_u_inputs
-               ,u_node_u_outputs=g_node_u_outputs
-               ,u_node_u_special=g_node_u_special
-               ,u_node_u_ugenid=g_node_u_ugenid}
+      return (U_Node_K {u_node_id=nid+kshift
+                       ,u_node_k_rate=g_node_k_rate
+                       ,u_node_k_index=g_node_k_index
+                       ,u_node_k_name=g_node_k_name
+                       ,u_node_k_default=g_node_k_default
+                       ,u_node_k_type=g_node_k_type
+                       ,u_node_k_meta=Nothing})
+    G_Node_U {..} -> do
+      mb_new_nid <- H.lookup lni nid
+      let n2f = nid_to_port kshift ushift
+      case mb_new_nid of
+        Just new_nid ->
+          return (U_Node_U {u_node_id=new_nid+ushift
+                           ,u_node_u_rate=g_node_u_rate
+                           ,u_node_u_name=g_node_u_name
+                           ,u_node_u_inputs=map n2f g_node_u_inputs
+                           ,u_node_u_outputs=g_node_u_outputs
+                           ,u_node_u_special=g_node_u_special
+                           ,u_node_u_ugenid=g_node_u_ugenid})
+        Nothing -> error ("gnode_to_unode: bad id " ++ show nid)
 {-# INLINE gnode_to_unode #-}
+
+nid_to_port :: Int -> Int -> NodeId -> From_Port
+nid_to_port kshift ushift nid =
+  case nid of
+    NodeId_C k   -> From_Port_C k
+    NodeId_K k t -> From_Port_K (k+kshift) t
+    NodeId_U k   -> From_Port_U (k+ushift) Nothing
+    NodeId_P k p -> From_Port_U (k+ushift) (Just p)
+    NConstant v  -> error ("nid_to_port: constant " ++ show v)
+{-# INLINE nid_to_port #-}
 
 --
 -- Dead code elimination
@@ -207,8 +220,8 @@ type LNI s = HT.HashTable s Int Int
 
 -- | Perform dead code elimination for the key-to-value hashtable of
 -- 'BiMap'.
-eliminate_dead_code :: BiMap s G_Node -> ST s (BiMap s G_Node)
-eliminate_dead_code t@(BiMap ref _ kt) = do
+eliminate_dead_code :: BiMap s G_Node -> ST s (Int, LNI s)
+eliminate_dead_code (BiMap ref _ kt) = do
   size <- readSTRef ref
   lni <- H.newSized size
   H.mapM_ (collect_live_id lni) kt
@@ -216,7 +229,7 @@ eliminate_dead_code t@(BiMap ref _ kt) = do
   when (0 < n_removed)
        (do H.mapM_ (update_input_index lni kt) kt
            modifySTRef' ref (\x -> x - n_removed))
-  return t
+  return (n_removed, lni)
 {-# INLINABLE eliminate_dead_code #-}
 
 collect_live_id :: LNI s -> (a, G_Node) -> ST s ()
