@@ -209,9 +209,10 @@ type LNI s = HT.HashTable s Int Int
 -- 'BiMap'.
 eliminate_dead_code :: BiMap s G_Node -> ST s (BiMap s G_Node)
 eliminate_dead_code t@(BiMap ref _ kt) = do
-  lni <- readSTRef ref >>= H.newSized
+  size <- readSTRef ref
+  lni <- H.newSized size
   H.mapM_ (collect_live_id lni) kt
-  n_removed <- H.foldM (remove_unused_node lni kt) 0 kt
+  n_removed <- remove_unused_nodes lni kt size
   when (0 < n_removed)
        (do H.mapM_ (update_input_index lni kt) kt
            modifySTRef' ref (\x -> x - n_removed))
@@ -228,20 +229,32 @@ collect_live_id lni (_,gn) = mapM_ insert_id (g_node_u_inputs gn)
         _            -> return ()
 {-# INLINE collect_live_id #-}
 
-remove_unused_node :: LNI s -> BiMapKT s G_Node
-                   -> Int -> (Int, G_Node) -> ST s Int
-remove_unused_node lni kt n_removed (!k,gn) = do
-  mb_found <- H.lookup lni k
-  case mb_found of
-    Nothing | not (null (g_node_u_outputs gn)) -> do
-      H.delete kt k
-      H.insert lni k (k-n_removed)
-      let !n_removed' = n_removed + 1
-      return n_removed'
-    _  -> do
-      H.insert lni k (k-n_removed)
-      return n_removed
-{-# INLINE remove_unused_node #-}
+remove_unused_nodes :: LNI s -> BiMapKT s G_Node -> Int -> ST s Int
+remove_unused_nodes lni kt stop = go 0 0
+  where
+    -- Looping through BiMapKT with index `k::Int', because the key
+    -- values of 'BiMapKT' is not guaranteed to be sorted, so updating
+    -- live code index table with counting the number of removed nodes
+    -- may not work with HashTables's `foldM'.
+    go n_removed !k
+      | stop <= k = return n_removed
+      | otherwise = do
+        mb_found <- H.lookup lni k
+        case mb_found of
+          Just _  -> do
+            H.insert lni k (k-n_removed)
+            go n_removed (k+1)
+          Nothing -> do
+            mb_gn <- H.lookup kt k
+            case mb_gn of
+              Just gn | not (null (g_node_u_outputs gn)) -> do
+                H.delete kt k
+                let !n_removed' = n_removed + 1
+                go n_removed' (k+1)
+              _ -> do
+                H.insert lni k (k-n_removed)
+                go n_removed (k+1)
+{-# INLINE remove_unused_nodes #-}
 
 update_input_index :: LNI s -> BiMapKT s G_Node
                    -> (Int,G_Node) -> ST s ()
