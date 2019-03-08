@@ -34,11 +34,18 @@ import Sound.SC3.UGen.Jiffy.Builder.GraphM
 
 
 --
--- DAG to Graphdef
+-- Types
 --
 
 -- | Mapping from control node id to 'Input'.
 newtype KTable s = KTable (HT.HashTable s Int Input)
+
+-- | Live node index, from old ID to new ID.
+type LNI s = HT.HashTable s Int Int
+
+--
+-- DAG to Graphdef
+--
 
 -- XXX: Count the number of local buf ugens while building the synthdef
 -- graph, to add 'MaxLocalBuf'.
@@ -152,7 +159,7 @@ convert_inputs (KTable table) shift = mapM f
 
 dag_to_U_Graph :: DAG s -> ST s U_Graph
 dag_to_U_Graph (DAG cm km um) = do
-  (_n_removed, lni) <- eliminate_dead_code um
+  lni <- eliminate_dead_code um
   nc <- sizeBM cm
   nk <- sizeBM km
   nu <- sizeBM um
@@ -168,7 +175,7 @@ dag_to_U_Graph (DAG cm km um) = do
                       ,ug_constants=cs
                       ,ug_controls=ks
                       ,ug_ugens=us}
-      count = nc + nk + nu + 1
+      count = nc + nk + nu
   return (ug_add_implicit graph)
 {-# INLINABLE dag_to_U_Graph #-}
 
@@ -215,12 +222,9 @@ nid_to_port kshift ushift nid =
 -- Dead code elimination
 --
 
--- | Live node index, from old ID to new ID.
-type LNI s = HT.HashTable s Int Int
-
 -- | Perform dead code elimination for the key-to-value hashtable of
 -- 'BiMap'.
-eliminate_dead_code :: BiMap s G_Node -> ST s (Int, LNI s)
+eliminate_dead_code :: BiMap s G_Node -> ST s (LNI s)
 eliminate_dead_code (BiMap ref _ kt) = do
   size <- readSTRef ref
   lni <- H.newSized size
@@ -229,7 +233,7 @@ eliminate_dead_code (BiMap ref _ kt) = do
   when (0 < n_removed)
        (do H.mapM_ (update_input_index lni kt) kt
            modifySTRef' ref (\x -> x - n_removed))
-  return (n_removed, lni)
+  return lni
 {-# INLINABLE eliminate_dead_code #-}
 
 collect_live_id :: LNI s -> (a, G_Node) -> ST s ()

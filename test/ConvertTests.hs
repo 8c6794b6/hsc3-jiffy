@@ -32,10 +32,10 @@ compare_graphdefs label ug =
   describe label $
     let g1 = ugen_to_graphdef "g" ug
         g2 = graph_to_graphdef "g" (ugen_to_graph ug)
-    in  it "should be identcal" (g1 `shouldBe` g2)
+    in  it "should_be_identcal" (g1 `shouldBe` g2)
 
 simple_test :: Spec
-simple_test = compare_graphdefs "simple graph" (out 0 (sinOsc AR 1 0))
+simple_test = compare_graphdefs "simple_graph" (out 0 (sinOsc AR 1 0))
 
 control_graph :: UGen
 control_graph =
@@ -45,7 +45,7 @@ control_graph =
   in  out 0 (sinOsc AR p0 0 * e)
 
 control_test :: Spec
-control_test = compare_graphdefs "control graph" control_graph
+control_test = compare_graphdefs "control_graph" control_graph
 
 dce_graph :: UGen
 dce_graph =
@@ -55,10 +55,10 @@ dce_graph =
   in  out 0 (s0+s1+s2)
 
 dce_test :: Spec
-dce_test = compare_graphdefs "dead-code-eliminated graph" dce_graph
+dce_test = compare_graphdefs "dead_code_eliminated_graph" dce_graph
 
 whysc_test :: Spec
-whysc_test = compare_graphdefs "whysc graph" whysc
+whysc_test = compare_graphdefs "whysc_graph" whysc
 
 convertTests :: Spec
 convertTests =
