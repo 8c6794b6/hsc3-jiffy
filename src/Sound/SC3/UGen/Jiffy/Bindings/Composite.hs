@@ -2,7 +2,8 @@
 {-# LANGUAGE FlexibleInstances #-}
 -- | Hand-written composite UGen functions.
 module Sound.SC3.UGen.Jiffy.Bindings.Composite
-  ( mix
+  ( dup
+  , mix
   , wrapOut
   ) where
 
@@ -38,6 +39,11 @@ instance Audible UGen where
 --
 -- Hand-written Functions
 --
+
+-- | Duplicate given 'UGen' for given number.
+dup :: Int -> UGen -> UGen
+dup n = mce . (replicate n)
+{-# INLINABLE dup #-}
 
 -- | Sum MCE UGen to single channel.
 mix :: UGen -> UGen

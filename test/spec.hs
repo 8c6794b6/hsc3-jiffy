@@ -5,10 +5,12 @@ module Main where
 import Test.Hspec
 
 -- Internal
+import BuilderTests
 import ConvertTests
 import Hsc3Tests
 
 main :: IO ()
 main =
-  hspec (do convertTests
+  hspec (do builderTests
+            convertTests
             hsc3Tests)

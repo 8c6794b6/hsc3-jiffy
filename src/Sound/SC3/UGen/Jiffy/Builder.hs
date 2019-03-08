@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -27,7 +28,7 @@ module Sound.SC3.UGen.Jiffy.Builder
   , mce
   , mce2
   , mceChannel
-  , dup
+  , mceChannels
 
   , mkUGen
   , mkSimpleUGen
@@ -49,6 +50,9 @@ module Sound.SC3.UGen.Jiffy.Builder
 
 -- base
 import Control.Monad.ST (ST, runST)
+#if MIN_VERSION_base (4,9,0)
+import Control.Monad.Fail (MonadFail(..))
+#endif
 import Data.Foldable (foldlM, toList)
 import Data.List (transpose)
 
@@ -92,6 +96,11 @@ instance Monad G where
   {-# INLINE return #-}
   G m >>= k = G (m >>= unG . k)
   {-# INLINE (>>=) #-}
+
+#if MIN_VERSION_base (4,9,0)
+instance MonadFail G where
+  fail = error . ("G: " ++)
+#endif
 
 
 --
@@ -769,22 +778,29 @@ undemand xs =
 {-# INLINE undemand #-}
 
 --
--- Composite and auxiliary UGen related functions
+-- Auxiliary UGen related functions
 --
 
-share :: Applicative m => G a -> G (m a)
+share :: UGen -> G UGen
 share g = G (fmap pure (unG g))
 {-# INLINE share #-}
-{-# SPECIALIZE share :: UGen -> G UGen #-}
 
 mceChannel :: Int -> UGen -> UGen
 mceChannel n g =
   G (do nid <- unG g
         case nid of
-          MCEV _ xs -> return (xs !! n)
-          MCEU _ | n == 0 -> return nid
+          MCEV m xs | n < m  -> return (xs !! n)
+          MCEU _    | n == 0 -> return nid
           _ -> error "mceChannel: index out of range")
 {-# INLINABLE mceChannel #-}
+
+mceChannels :: UGen -> G [UGen]
+mceChannels g =
+  G (do mce_nid <- unG g
+        case mce_nid of
+          MCEV _ xs -> pure (map pure xs)
+          MCEU _    -> pure [pure mce_nid])
+{-# INLINABLE mceChannels #-}
 
 mce :: [UGen] -> UGen
 mce gs =
@@ -798,10 +814,6 @@ mce gs =
 mce2 :: UGen -> UGen -> UGen
 mce2 a b = G ((\x y -> MCEV 2 [x,y]) <$> unG a <*> unG b)
 {-# INLINE mce2 #-}
-
-dup :: Int -> UGen -> UGen
-dup n = mce . (replicate n)
-{-# INLINABLE dup #-}
 
 envelope_to_ugen :: Envelope UGen -> UGen
 envelope_to_ugen e =
