@@ -28,6 +28,7 @@ library
                        Sound.SC3.UGen.Jiffy.Builder.Convert
                        Sound.SC3.UGen.Jiffy.Builder.GraphM
   build-depends:       base >= 4.12 && < 5
+                     , array
                      , bytestring
                      , filepath
                      , hashable

@@ -14,6 +14,10 @@ import Data.Function (on)
 import Data.List (groupBy, sortBy)
 import Data.STRef (modifySTRef', readSTRef)
 
+-- array
+import Data.Array.MArray (newArray, readArray, writeArray)
+import Data.Array.ST (STUArray)
+
 -- hashtable
 import qualified Data.HashTable.Class as H
 import qualified Data.HashTable.ST.Basic as HT
@@ -32,20 +36,12 @@ import Sound.SC3.UGen.Type (Sample)
 -- Internal
 import Sound.SC3.UGen.Jiffy.Builder.GraphM
 
-
 --
--- Types
+-- DAG to Graphdef
 --
 
 -- | Mapping from control node id to 'Input'.
 newtype KTable s = KTable (HT.HashTable s Int Input)
-
--- | Live node index, from old ID to new ID.
-type LNI s = HT.HashTable s Int Int
-
---
--- DAG to Graphdef
---
 
 -- XXX: Count the number of local buf ugens while building the synthdef
 -- graph, to add 'MaxLocalBuf'.
@@ -194,7 +190,7 @@ gnode_to_unode nid kshift ushift lni node =
                        ,u_node_k_type=g_node_k_type
                        ,u_node_k_meta=Nothing})
     G_Node_U {..} -> do
-      mb_new_nid <- H.lookup lni nid
+      mb_new_nid <- lookupLNI lni nid
       let n2f = nid_to_port kshift ushift
       case mb_new_nid of
         Just new_nid ->
@@ -222,12 +218,31 @@ nid_to_port kshift ushift nid =
 -- Dead code elimination
 --
 
+-- | Live node index, from old ID to new ID.
+type LNI s = STUArray s Int Int
+
+newLNI :: Int -> ST s (LNI s)
+newLNI size = newArray (0,size) (-1)
+{-# INLINE newLNI #-}
+
+insertLNI :: LNI s -> Int -> Int -> ST s ()
+insertLNI = writeArray
+{-# INLINE insertLNI #-}
+
+lookupLNI :: LNI s -> Int -> ST s (Maybe Int)
+lookupLNI lni k = do
+  n <- readArray lni k
+  if n < 0
+     then return Nothing
+     else return $! Just n
+{-# INLINE lookupLNI #-}
+
 -- | Perform dead code elimination for the key-to-value hashtable of
 -- 'BiMap'.
 eliminate_dead_code :: BiMap s G_Node -> ST s (LNI s)
 eliminate_dead_code (BiMap ref _ kt) = do
   size <- readSTRef ref
-  lni <- H.newSized size
+  lni <- newLNI size
   H.mapM_ (collect_live_id lni) kt
   n_removed <- remove_unused_nodes lni kt size
   when (0 < n_removed)
@@ -241,8 +256,8 @@ collect_live_id lni (_,gn) = mapM_ insert_id (g_node_u_inputs gn)
   where
     insert_id nid =
       case nid of
-        NodeId_U k   -> H.insert lni k 0
-        NodeId_P k _ -> H.insert lni k 0
+        NodeId_U k   -> insertLNI lni k 0
+        NodeId_P k _ -> insertLNI lni k 0
         _            -> return ()
 {-# INLINE collect_live_id #-}
 
@@ -256,10 +271,10 @@ remove_unused_nodes lni kt stop = go 0 0
     go n_removed !k
       | stop <= k = return n_removed
       | otherwise = do
-        mb_found <- H.lookup lni k
+        mb_found <- lookupLNI lni k
         case mb_found of
           Just _  -> do
-            H.insert lni k (k-n_removed)
+            insertLNI lni k (k-n_removed)
             go n_removed (k+1)
           Nothing -> do
             mb_gn <- H.lookup kt k
@@ -269,7 +284,7 @@ remove_unused_nodes lni kt stop = go 0 0
                 let !n_removed' = n_removed + 1
                 go n_removed' (k+1)
               _ -> do
-                H.insert lni k (k-n_removed)
+                insertLNI lni k (k-n_removed)
                 go n_removed (k+1)
 {-# INLINE remove_unused_nodes #-}
 
@@ -285,12 +300,12 @@ update_input_index lni kt (!k,gn) =
     lookup_nid nid =
       case nid of
         NodeId_U old -> do
-          mb_new <- H.lookup lni old
+          mb_new <- lookupLNI lni old
           case mb_new of
             Just new -> return (NodeId_U new)
             Nothing  -> error ("lookup_nid: missing " ++ show old)
         NodeId_P old p -> do
-          mb_new <- H.lookup lni old
+          mb_new <- lookupLNI lni old
           case mb_new of
             Just new -> return (NodeId_P new p)
             Nothing -> error ("lookup_nid: missing" ++ show old)
