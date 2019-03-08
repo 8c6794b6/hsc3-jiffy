@@ -249,6 +249,20 @@ envelope_graph = describe "envelope" $ do
            in  S.out 0 o
   same_graph j0 h0
 
+pv_graph :: Spec
+pv_graph = describe "pv" $ do
+  let j0 = let buf = localBuf 1 2048
+               f = fft' buf (whiteNoise AR)
+               p0 = control KR "p0" 0.1
+               c = pv_BrickWall f (sinOsc KR p0 0 * 0.75)
+           in  out 0 (ifft' c * 0.1)
+      h0 = let buf = S.localBuf 'a' 1 2048
+               f = S.fft' buf (S.whiteNoise 'b' AR)
+               p0 = S.control KR "p0" 0.1
+               c = S.pv_BrickWall f (S.sinOsc KR p0 0 * 0.75)
+           in  S.out 0 (S.ifft' c * 0.1)
+  same_graph j0 h0
+
 --
 -- Exported
 --
@@ -265,4 +279,5 @@ hsc3Tests =
                unary_op_graph
                optimize_graph
                demand_graph
-               envelope_graph)
+               envelope_graph
+               pv_graph)

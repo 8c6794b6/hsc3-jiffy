@@ -75,6 +75,8 @@ defineUGen u =
                    then [e|hashUId|]
                    else [e|noId|]
       mk
+        | "LocalBuf" == ugen_name u
+        = [e|mkLocalBufUGen|]
         | Nothing <- ugen_outputs u, not (ugen_nc_input u)
         = [e|mkDemandUGen|] -- special case for 'demand'.
         | ugen_std_mce u > 0

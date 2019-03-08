@@ -3,6 +3,8 @@
 -- | Hand-written composite UGen functions.
 module Sound.SC3.UGen.Jiffy.Bindings.Composite
   ( dup
+  , fft'
+  , ifft'
   , mix
   , wrapOut
   ) where
@@ -64,7 +66,15 @@ mix g = do
     MCEU _    -> return mce_nid
 {-# INLINABLE mix #-}
 
--- | Jiffy Variant of 'Sound.SC3.UGen.Bindings.Composite.wrapOut'.
+-- | Jiffy version of 'Sound.SC3.UGen.Composite.fft''.
+fft' :: UGen -> UGen -> UGen
+fft' buf i = fft buf i 0.5 0 1 0
+
+-- | Jiffy version of 'Sound.SC3.UGen.Composite.ifft''.
+ifft' :: UGen -> UGen
+ifft' buf = ifft buf 0 0
+
+-- | Jiffy version of 'Sound.SC3.UGen.Bindings.Composite.wrapOut'.
 wrapOut :: UGen -> UGen
 wrapOut ug = do
   (sink, mce_nid) <- isSink ug

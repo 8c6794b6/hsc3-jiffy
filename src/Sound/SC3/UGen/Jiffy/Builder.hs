@@ -34,6 +34,7 @@ module Sound.SC3.UGen.Jiffy.Builder
   , mkSimpleUGen
   , mkChannelsArrayUGen
   , mkDemandUGen
+  , mkLocalBufUGen
 
   , const_rate
   , maximum_rate
@@ -450,6 +451,15 @@ mkDemandUGen _n_output uid_fn special name rate_fn input_ugens =
         let f = mkUGenFn n_output uid_fn special name rate_fn
         normalize n_output f input_mce_ids)
 {-# INLINABLE mkDemandUGen #-}
+
+mkLocalBufUGen :: MkUGen
+mkLocalBufUGen n_output uid_fn special name rate_fn input_ugens =
+  G (do let f = mkUGenFn n_output uid_fn special name rate_fn
+        dag <- ask
+        incrementNumLocalBufs dag
+        input_mce_nids <- mapM runG input_ugens
+        normalize n_output f input_mce_nids)
+{-# INLINABLE mkLocalBufUGen #-}
 
 -- | Make a unary operator UGen, with constant folding function applied
 -- to 'NConstant' input values.

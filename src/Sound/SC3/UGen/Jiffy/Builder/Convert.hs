@@ -43,24 +43,46 @@ import Sound.SC3.UGen.Jiffy.Builder.GraphM
 -- | Mapping from control node id to 'Input'.
 newtype KTable s = KTable (HT.HashTable s Int Input)
 
--- XXX: Count the number of local buf ugens while building the synthdef
--- graph, to add 'MaxLocalBuf'.
-
 dag_to_Graphdef :: String -> DAG s -> ST s Graphdef
-dag_to_Graphdef name (DAG cm km um) = do
-  cs <- sortPairs <$> foldBM acc_constants [] cm
+dag_to_Graphdef name (DAG nbufs_ref cm km um) = do
+  -- Firstly, get the number of LocalBuf UGens.
+  nbufs <- readSTRef nbufs_ref
+  let has_local_buf = 0 < nbufs
+
+  -- Make control UGens, and a lookup table for it.
   kt <- sizeBM km >>= emptyKTable
   gnks <- sortByKType <$> toListBM km
-  let ks = zipWith g_node_k_to_control [0..] gnks
-  implicit_ugens <- update_ktable kt gnks
-  let shift = length implicit_ugens
+  control_ugens <- update_ktable kt has_local_buf gnks
+
+  -- Add MaxLocalBuf to implicitly added UGens. MaxLocalBuf may add a
+  -- new constant value, so let it add before accumulating constants.
+  let get_implicit_ugens
+        | has_local_buf = (: control_ugens) <$> mkMaxLocalBufs nbufs cm
+        | otherwise     = return control_ugens
+  implicit_ugens <- get_implicit_ugens
+
+  -- Optimize the UGen graph
   _ <- eliminate_dead_code um
+
+  -- Accumulate the Graphdef fields ...
+  cs <- sortPairs <$> foldBM acc_constants [] cm
+  let ks = zipWith g_node_k_to_control [0..] gnks
+      shift | has_local_buf = length control_ugens + 1
+            | otherwise     = length control_ugens
   us <- sortPairs <$> foldBM (acc_ugens kt shift) [] um
+
   return (Graphdef {graphdef_name=ascii name
                    ,graphdef_constants=cs
                    ,graphdef_controls=ks
-                   ,graphdef_ugens=implicit_ugens ++ us})
+                   ,graphdef_ugens=implicit_ugens <> us})
 {-# INLINABLE dag_to_Graphdef #-}
+
+mkMaxLocalBufs :: Int -> BiMap s G_Node -> ST s UGen
+mkMaxLocalBufs nbufs cm = do
+  nid <- hashconsC' cm (fromIntegral nbufs)
+  let i = Input (-1) nid
+  return $! (ascii "MaxLocalBufs",0,[i],[],0)
+{-# INLINE mkMaxLocalBufs #-}
 
 emptyKTable :: Int -> ST s (KTable s)
 emptyKTable size = KTable <$> H.newSized size
@@ -74,14 +96,17 @@ acc_constants :: [(a, Sample)] -> (a, G_Node) -> ST s [(a, Sample)]
 acc_constants acc (k,n) = return ((k,g_node_c_value n) : acc)
 {-# INLINE acc_constants #-}
 
-update_ktable :: KTable s -> [(Int, G_Node)] -> ST s [UGen]
-update_ktable (KTable table) controls = do
+update_ktable :: KTable s -> Bool -> [(Int, G_Node)] -> ST s [UGen]
+update_ktable (KTable table) hasLocalBufs controls = do
   let grouped_controls = groupByKType controls
       insert_controls ugen_index nodes =
         zipWithM_ (insert_control ugen_index) [0..] nodes
       insert_control ugen_index local_index (nid,_) =
         H.insert table nid (Input ugen_index local_index)
-  zipWithM_ insert_controls [0..] grouped_controls
+      control_ugen_ids
+        | hasLocalBufs = [1..]
+        | otherwise    = [0..]
+  zipWithM_ insert_controls control_ugen_ids grouped_controls
   return (to_control_ugens grouped_controls)
 {-# INLINE update_ktable #-}
 
@@ -124,12 +149,12 @@ acc_ugens :: KTable s
           -> [(a, UGen)]
           -> (a, G_Node)
           -> ST s [(a, UGen)]
-acc_ugens pm shift acc (k,n) = do
+acc_ugens kt shift acc (k,n) = do
   let name_bs = ascii (g_node_u_name n)
       rate = fromEnum (g_node_u_rate n)
       outs = map fromEnum (g_node_u_outputs n)
       Special sp = g_node_u_special n
-  ins <- convert_inputs pm shift (g_node_u_inputs n)
+  ins <- convert_inputs kt shift (g_node_u_inputs n)
   return ((k, (name_bs,rate,ins,outs,sp)) : acc)
 {-# INLINE acc_ugens #-}
 
@@ -154,7 +179,7 @@ convert_inputs (KTable table) shift = mapM f
 --
 
 dag_to_U_Graph :: DAG s -> ST s U_Graph
-dag_to_U_Graph (DAG cm km um) = do
+dag_to_U_Graph (DAG _ cm km um) = do
   lni <- eliminate_dead_code um
   nc <- sizeBM cm
   nk <- sizeBM km

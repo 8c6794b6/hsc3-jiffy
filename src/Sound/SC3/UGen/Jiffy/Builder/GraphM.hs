@@ -10,8 +10,10 @@ module Sound.SC3.UGen.Jiffy.Builder.GraphM
   , DAG(..)
   , emptyDAG
   , hashconsC
+  , hashconsC'
   , hashconsK
   , hashconsU
+  , incrementNumLocalBufs
 
     -- * BiMap
   , BiMap(..)
@@ -43,7 +45,7 @@ module Sound.SC3.UGen.Jiffy.Builder.GraphM
 import Control.Monad.ST (ST)
 import Data.Foldable (foldl')
 import Data.List (intercalate)
-import Data.STRef (STRef, newSTRef, readSTRef, writeSTRef)
+import Data.STRef (STRef, modifySTRef', newSTRef, readSTRef, writeSTRef)
 
 -- hashable
 import Data.Hashable (Hashable(..))
@@ -81,7 +83,8 @@ type GraphM s a = ReaderT (DAG s) (ST s) a
 -- nodes, to keep the hash table small. But the 'Int' value for
 -- bookkeeping lookup-key of 'BiMap's is shared.
 data DAG s =
-  DAG { cmap :: {-# UNPACK #-} !(BiMap s G_Node)
+  DAG { numLocalBufs :: {-# UNPACK #-} !(STRef s Int)
+      , cmap :: {-# UNPACK #-} !(BiMap s G_Node)
       , kmap :: {-# UNPACK #-} !(BiMap s G_Node)
       , umap :: {-# UNPACK #-} !(BiMap s G_Node) }
 
@@ -91,7 +94,7 @@ instance Show (DAG s) where
 -- | Make a new empty 'DAG' in 'ST' monad, with heuristically selected
 -- initial sizes for internal hash tables.
 emptyDAG :: ST s (DAG s)
-emptyDAG = DAG <$> empty 16 <*> empty 8 <*> empty 128
+emptyDAG = DAG <$> newSTRef 0 <*> empty 16 <*> empty 8 <*> empty 128
 
 --
 -- Simple bidirectional map
@@ -344,6 +347,15 @@ g_node_rate n =
 {-# INLINE g_node_rate #-}
 
 --
+-- Counting number of LocalBuf UGens
+--
+
+incrementNumLocalBufs :: DAG s -> GraphM s ()
+incrementNumLocalBufs dag =
+  lift (modifySTRef' (numLocalBufs dag) (+1))
+{-# INLINE incrementNumLocalBufs #-}
+
+--
 -- Hash-consing
 --
 
@@ -362,6 +374,15 @@ hashcons con prj !x = do
 hashconsC :: G_Node -> GraphM s NodeId
 hashconsC g = hashcons NodeId_C cmap g
 {-# INLINABLE hashconsC #-}
+
+hashconsC' :: BiMap s G_Node -> Sample -> ST s Int
+hashconsC' bimap !smpl = do
+  let x = G_Node_C smpl
+  v <- lookup_key x bimap
+  case v of
+    Nothing -> insert x bimap
+    Just k  -> return k
+{-# INLINABLE hashconsC' #-}
 
 hashconsK :: G_Node -> GraphM s NodeId
 hashconsK g = hashcons (flip NodeId_K (g_node_k_type g)) kmap g
