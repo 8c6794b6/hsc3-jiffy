@@ -84,6 +84,10 @@ optimize_adds =
       it "has_no_Add" (g0 `shouldNotSatisfy` hasAdd)
 
     describe "dead_code_elimination" $ do
+      -- Want to leave `d' as-is, because it's used in out.  The `d'
+      -- node is used as an argument of `e' node, which multiplys with
+      -- `c', so there is a chance to replace with MulAdd, but prefer
+      -- sharing the node than applying MulAdd.
       let g0 = u2g (let a = sinOsc AR 1 0
                         b = sinOsc AR 2 0
                         c = sinOsc AR 3 0
@@ -91,16 +95,8 @@ optimize_adds =
                         e = d + c
                     in  out 0 (mce2 d e))
       it "has_Mul" (g0 `shouldSatisfy` hasMul)
-      -- XXX: Too much inlining.
-      --
-      -- Better not to replace `e' with "MulAdd", because `d' would not
-      -- be removed, so simply reuse d with applying Add UGen. But such
-      -- live node reusing are not detected. Same is happening in graphs
-      -- defined with functions from hsc3.
-      --
-      -- Seems like, sclang is avoiding such situation with counting the
-      -- number of descendants for already registered nodes.
-      it "has_no_MulAdd" (pendingWith "NYI: sharing live node")
+      it "has_Add" (g0 `shouldSatisfy` hasAdd)
+      it "has_no_MulAdd" (g0 `shouldNotSatisfy` hasMulAdd)
 
 optimize_sub :: Spec
 optimize_sub =

@@ -13,7 +13,9 @@ module Sound.SC3.UGen.Jiffy.Builder.GraphM
   , hashconsC'
   , hashconsK
   , hashconsU
+
   , incrementNumLocalBufs
+  , registerOp
 
     -- * BiMap
   , BiMap(..)
@@ -23,11 +25,17 @@ module Sound.SC3.UGen.Jiffy.Builder.GraphM
   , toListBM
   , sizeBM
 
+    -- * OpMap
+  , OpMap(..)
+  , OpArg(..)
+  , toListOM
+
     -- * Node and node ID
   , G_Node(..)
   , NodeId(..)
   , nid_value
   , lookup_g_node
+  , lookup_g_node'
   , g_node_rate
 
     -- * MCE
@@ -84,6 +92,7 @@ type GraphM s a = ReaderT (DAG s) (ST s) a
 -- bookkeeping lookup-key of 'BiMap's is shared.
 data DAG s =
   DAG { numLocalBufs :: {-# UNPACK #-} !(STRef s Int)
+      , opmap :: {-# UNPACK #-} !(OpMap s)
       , cmap :: {-# UNPACK #-} !(BiMap s G_Node)
       , kmap :: {-# UNPACK #-} !(BiMap s G_Node)
       , umap :: {-# UNPACK #-} !(BiMap s G_Node) }
@@ -94,7 +103,9 @@ instance Show (DAG s) where
 -- | Make a new empty 'DAG' in 'ST' monad, with heuristically selected
 -- initial sizes for internal hash tables.
 emptyDAG :: ST s (DAG s)
-emptyDAG = DAG <$> newSTRef 0 <*> empty 16 <*> empty 8 <*> empty 128
+emptyDAG =
+  DAG <$> newSTRef 0 <*> newOpMap 8 <*>
+  empty 16 <*> empty 8 <*> empty 128
 
 --
 -- Simple bidirectional map
@@ -159,6 +170,33 @@ toListBM = foldBM (\as a -> pure (a:as)) []
 sizeBM :: BiMap s a -> ST s Int
 sizeBM (BiMap ref _ _) = readSTRef ref
 {-# INLINE sizeBM #-}
+
+--
+-- Operator map, for synthdef graph optimization
+--
+
+-- | Operator map, from node id to 'OpArg'.
+newtype OpMap s = OpMap (HT.HashTable s Int OpArg)
+
+-- | Operator arguments.
+data OpArg
+  = AddArgs !NodeId !NodeId
+  -- ^ Arguments of binary operator 'Add'.
+  | SubArgs !NodeId !NodeId
+  -- ^ Arguments of binary operator 'Sub'.
+  deriving (Eq, Show)
+
+newOpMap :: Int -> ST s (OpMap s)
+newOpMap size = OpMap <$> HC.newSized size
+{-# INLINE newOpMap #-}
+
+toListOM :: OpMap s -> ST s [(Int,OpArg)]
+toListOM (OpMap om) = HC.toList om
+{-# INLINE toListOM #-}
+
+insertOpArg :: OpMap s -> Int -> OpArg -> ST s ()
+insertOpArg (OpMap om) !k !v = HC.insert om k v
+{-# INLINE insertOpArg #-}
 
 
 --
@@ -329,14 +367,18 @@ nid_value nid =
 {-# INLINE nid_value #-}
 
 lookup_g_node :: NodeId -> DAG s -> GraphM s G_Node
-lookup_g_node nid dag =
-  lift (case nid of
-          NodeId_C k -> lookup_val k (cmap dag)
-          NodeId_K k _ -> lookup_val k (kmap dag)
-          NodeId_U k -> lookup_val k (umap dag)
-          NodeId_P k _ -> lookup_val k (umap dag)
-          NConstant v -> error ("lookup_g_node: constant " ++ show v))
+lookup_g_node nid dag = lift (lookup_g_node' nid dag)
 {-# INLINE lookup_g_node #-}
+
+lookup_g_node' :: NodeId -> DAG s -> ST s G_Node
+lookup_g_node' nid dag =
+  case nid of
+    NodeId_C k -> lookup_val k (cmap dag)
+    NodeId_K k _ -> lookup_val k (kmap dag)
+    NodeId_U k -> lookup_val k (umap dag)
+    NodeId_P k _ -> lookup_val k (umap dag)
+    NConstant v -> error ("lookup_g_node: constant " ++ show v)
+{-# INLINE lookup_g_node' #-}
 
 g_node_rate :: G_Node -> Rate
 g_node_rate n =
@@ -347,13 +389,19 @@ g_node_rate n =
 {-# INLINE g_node_rate #-}
 
 --
--- Counting number of LocalBuf UGens
+-- Synthdef construction helpers
 --
 
 incrementNumLocalBufs :: DAG s -> GraphM s ()
 incrementNumLocalBufs dag =
   lift (modifySTRef' (numLocalBufs dag) (+1))
 {-# INLINE incrementNumLocalBufs #-}
+
+registerOp :: DAG s -> NodeId -> OpArg -> GraphM s NodeId
+registerOp (DAG _ opmap _ _ _) me oparg = do
+  lift (insertOpArg opmap (nid_value me) oparg)
+  return me
+{-# INLINE registerOp #-}
 
 --
 -- Hash-consing

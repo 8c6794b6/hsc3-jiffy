@@ -26,8 +26,10 @@ import qualified Data.HashTable.ST.Basic as HT
 import Sound.OSC.Datum (ascii)
 
 -- hsc3
-import Sound.SC3 (K_Type(..), Special(..))
-import Sound.SC3.Server.Graphdef (Graphdef(..), Control, Input(..), UGen)
+import Sound.SC3
+  ( Binary(..), K_Type(..), Rate(..), Special(..), Unary(..) )
+import Sound.SC3.Server.Graphdef
+  ( Graphdef(..), Control, Input(..), UGen )
 import Sound.SC3.UGen.Graph
   ( From_Port(..), U_Graph(..), U_Node(..)
   , ug_add_implicit, {- ug_pv_validate, -} )
@@ -44,8 +46,11 @@ import Sound.SC3.UGen.Jiffy.Builder.GraphM
 newtype KTable s = KTable (HT.HashTable s Int Input)
 
 dag_to_Graphdef :: String -> DAG s -> ST s Graphdef
-dag_to_Graphdef name (DAG nbufs_ref cm km um) = do
-  -- Firstly, get the number of LocalBuf UGens.
+dag_to_Graphdef name dag@(DAG nbufs_ref _ cm km um) = do
+  -- Optimize the UGen graph
+  _ <- optimize_graph dag
+
+  -- Get the number of LocalBuf UGens.
   nbufs <- readSTRef nbufs_ref
   let has_local_buf = 0 < nbufs
 
@@ -60,9 +65,6 @@ dag_to_Graphdef name (DAG nbufs_ref cm km um) = do
         | has_local_buf = (: control_ugens) <$> mkMaxLocalBufs nbufs cm
         | otherwise     = return control_ugens
   implicit_ugens <- get_implicit_ugens
-
-  -- Optimize the UGen graph
-  _ <- eliminate_dead_code um
 
   -- Accumulate the Graphdef fields ...
   cs <- sortPairs <$> foldBM acc_constants [] cm
@@ -179,8 +181,8 @@ convert_inputs (KTable table) shift = mapM f
 --
 
 dag_to_U_Graph :: DAG s -> ST s U_Graph
-dag_to_U_Graph (DAG _ cm km um) = do
-  lni <- eliminate_dead_code um
+dag_to_U_Graph dag@(DAG _ _ cm km um) = do
+  lni <- optimize_graph dag
   nc <- sizeBM cm
   nk <- sizeBM km
   nu <- sizeBM um
@@ -240,51 +242,237 @@ nid_to_port kshift ushift nid =
 {-# INLINE nid_to_port #-}
 
 --
--- Dead code elimination
+-- UGen graph optimization
 --
 
--- | Live node index, from old ID to new ID.
-type LNI s = STUArray s Int Int
+-- | Descendant node index, from ID to number of descendant nodes.
+newtype DNI s = DNI (STUArray s Int Int)
 
-newLNI :: Int -> ST s (LNI s)
-newLNI size = newArray (0,size) (-1)
-{-# INLINE newLNI #-}
+newDNI :: Int -> ST s (DNI s)
+newDNI size = DNI <$> newArray (0,size) 0
+{-# INLINE newDNI #-}
+
+incrDNI :: DNI s -> Int -> ST s ()
+incrDNI (DNI arr) k = readArray arr k >>= writeArray arr k . succ
+{-# INLINE incrDNI #-}
+
+resetDNI :: DNI s -> Int -> ST s ()
+resetDNI (DNI arr) k = writeArray arr k 0
+{-# INLINE resetDNI #-}
+
+readDNI :: DNI s -> Int -> ST s Int
+readDNI (DNI arr) = readArray arr
+{-# INLINE readDNI #-}
+
+-- | Live node index, from old ID to new ID.
+newtype LNI s = LNI (STUArray s Int Int)
+
+dni2lni :: Int -> DNI s -> ST s (LNI s)
+dni2lni size (DNI dni) = go dni 0 >> return (LNI dni)
+  where
+    go arr !n
+      | size <= n = return ()
+      | otherwise = do
+        num_descs <- readArray arr n
+        writeArray arr n (if 0 < num_descs then 0 else (- 1))
+        go arr (n+1)
+{-# INLINE dni2lni #-}
 
 insertLNI :: LNI s -> Int -> Int -> ST s ()
-insertLNI = writeArray
+insertLNI (LNI arr) = writeArray arr
 {-# INLINE insertLNI #-}
 
 lookupLNI :: LNI s -> Int -> ST s (Maybe Int)
-lookupLNI lni k = do
-  n <- readArray lni k
+lookupLNI (LNI arr) k = do
+  n <- readArray arr k
   if n < 0
      then return Nothing
      else return $! Just n
 {-# INLINE lookupLNI #-}
 
+optimize_graph :: DAG s -> ST s (LNI s)
+optimize_graph dag@(DAG {umap=bimap}) = do
+  size <- sizeBM bimap
+  dni <- newDNI size
+  count_descendants size dni bimap
+  optimize_binops dni dag
+  lni <- dni2lni size dni
+  eliminate_dead_code size lni bimap
+{-# INLINABLE optimize_graph #-}
+
+count_descendants :: Int -> DNI s -> BiMap s G_Node -> ST s ()
+count_descendants size dni (BiMap _ _ kt) = go 0
+  where
+    go !n
+      | size <= n = return ()
+      | otherwise = do
+        mb_node <- H.lookup kt n
+        case mb_node of
+          Just (G_Node_U {..}) -> mapM_ incr g_node_u_inputs
+          _                    -> return ()
+        go (n+1)
+    incr nid =
+      case nid of
+        NodeId_U k   -> incrDNI dni k
+        NodeId_P k _ -> incrDNI dni k
+        _            -> return ()
+{-# INLINE count_descendants #-}
+
+optimize_binops :: DNI s -> DAG s -> ST s ()
+optimize_binops dni dag@(DAG _ om _ _ (BiMap _ _ vt)) = go
+  where
+    -- Sort the operator by node id, and perform node lookup each
+    -- time. The fields in OpArgs data type are 'NodeId', so that Add
+    -- nodes could optimized to Sum3, and then the Sum3 nodes could
+    -- optimized to Sum4, ... etc.
+    go = do ops <- sortBy (compare `on` fst) <$> toListOM om
+            mapM_ optimize_when_possible ops
+    optimize_when_possible (k, oparg) =
+      case oparg of
+        AddArgs nid0 nid1 -> do
+          n0 <- lookup_g_node' nid0 dag
+          n1 <- lookup_g_node' nid1 dag
+          let rate0 = g_node_rate n0
+              rate1 = g_node_rate n1
+          mbn <- optimize_add dag dni (post nid1) rate1 nid1 nid0 n0
+          case mbn of
+            Just node -> replace k nid0 node
+            Nothing   -> do
+              mbn' <- optimize_add dag dni (pre nid0) rate0 nid0 nid1 n1
+              case mbn' of
+                Just node' -> replace k nid1 node'
+                Nothing    -> return ()
+        SubArgs nid0 nid1 -> do
+          n0 <- lookup_g_node' nid0 dag
+          n1 <- lookup_g_node' nid1 dag
+          let r0 = g_node_rate n0
+          mbn <- optimize_sub dni r0 nid0 nid1 n1
+          case mbn of
+            Just node -> replace k nid1 node
+            Nothing   -> return ()
+    pre x xs = (x:xs)
+    post x xs = xs ++ [x]
+    replace k old_nid new_node =
+      resetDNI dni (nid_value old_nid) >> H.insert vt k new_node
+{-# INLINE optimize_binops #-}
+
+optimize_add :: DAG s -> DNI s -> ([NodeId] -> [NodeId])
+             -> Rate -> NodeId -> NodeId -> G_Node
+             -> ST s (Maybe G_Node)
+optimize_add dag dni f other_rate other_nid nid gn =
+  case gn of
+    G_Node_U {..}
+     | is_sum3_node gn ->
+       dg (do let gn' = gn {g_node_u_name="Sum4"
+                           ,g_node_u_inputs=f g_node_u_inputs
+                           ,g_node_u_rate=rate}
+              return $! Just gn')
+     | is_add_node gn ->
+       dg (do let gn' = gn {g_node_u_name="Sum3"
+                           ,g_node_u_inputs=f g_node_u_inputs
+                           ,g_node_u_special=Special 0
+                           ,g_node_u_rate=rate}
+              return $! Just gn')
+     | is_mul_node gn ->
+       dg (do inputs <- mapM get_node_pair g_node_u_inputs
+              case inputs of
+                [(nid0,n0),(nid1,n1)]
+                  | r0 == AR || (r0 == KR && other_rate_ok)
+                  -> mul_add [nid0,nid1]
+                  | r1 == AR || (r1 == KR && other_rate_ok)
+                  -> mul_add [nid1,nid0]
+                  where
+                    r0 = g_node_rate n0
+                    r1 = g_node_rate n1
+                    other_rate_ok =
+                      other_rate == IR || other_rate == KR
+                _ -> return Nothing)
+     | is_neg_node gn ->
+       dg (do let gn' = gn {g_node_u_name="BinaryOpUGen"
+                           ,g_node_u_inputs=other_nid:g_node_u_inputs
+                           ,g_node_u_outputs=[rate]
+                           ,g_node_u_special=Special (fromEnum Sub)}
+              return $! Just gn')
+    _ -> return Nothing
+  where
+    -- dg, do with descendants guard.
+    dg m = do n_descs <- readDNI dni (nid_value nid)
+              if n_descs == 1
+                 then m
+                 else return Nothing
+    mul_add ins =
+      let gn' = gn {g_node_u_name="MulAdd"
+                   ,g_node_u_inputs=ins++[other_nid]
+                   ,g_node_u_special=Special 0
+                   ,g_node_u_rate=rate}
+      in  return $! Just gn'
+    get_node_pair i = do
+      node <- lookup_g_node' i dag
+      return (i, node)
+    rate = max other_rate (g_node_rate gn)
+{-# INLINE optimize_add #-}
+
+optimize_sub :: DNI s -> Rate -> NodeId -> NodeId -> G_Node
+             -> ST s (Maybe G_Node)
+optimize_sub dni other_rate other_nid nid gn =
+  case gn of
+    G_Node_U {..}
+      | is_neg_node gn -> do
+        n_descs <- readDNI dni (nid_value nid)
+        if n_descs == 1
+           then let gn' = gn {g_node_u_name="BinaryOpUGen"
+                             ,g_node_u_inputs=other_nid:g_node_u_inputs
+                             ,g_node_u_outputs=[rate g_node_u_rate]
+                             ,g_node_u_special=Special (fromEnum Add)}
+                in  return $! Just gn'
+           else return Nothing
+    _ -> return Nothing
+  where
+    rate = max other_rate
+{-# INLINE optimize_sub #-}
+
+is_sum3_node :: G_Node -> Bool
+is_sum3_node gn
+  | G_Node_U {..} <- gn = "Sum3" == g_node_u_name
+  | otherwise = False
+{-# INLINE is_sum3_node #-}
+
+is_neg_node :: G_Node -> Bool
+is_neg_node gn
+  | G_Node_U {..} <- gn
+  , Special n <- g_node_u_special
+  , n == fromEnum Neg
+  = "UnaryOpUGen" == g_node_u_name
+  | otherwise = False
+{-# INLINE is_neg_node #-}
+
+is_add_node :: G_Node -> Bool
+is_add_node = is_binop_node Add
+{-# INLINE is_add_node #-}
+
+is_mul_node :: G_Node -> Bool
+is_mul_node = is_binop_node Mul
+{-# INLINE is_mul_node #-}
+
+is_binop_node :: Binary -> G_Node -> Bool
+is_binop_node op gn
+  | G_Node_U {..} <- gn
+  , Special n <- g_node_u_special
+  , n == fromEnum op
+  = "BinaryOpUGen" == g_node_u_name
+  | otherwise = False
+{-# INLINE is_binop_node #-}
+
 -- | Perform dead code elimination for the key-to-value hashtable of
 -- 'BiMap'.
-eliminate_dead_code :: BiMap s G_Node -> ST s (LNI s)
-eliminate_dead_code (BiMap ref _ kt) = do
-  size <- readSTRef ref
-  lni <- newLNI size
-  H.mapM_ (collect_live_id lni) kt
+eliminate_dead_code :: Int -> LNI s -> BiMap s G_Node -> ST s (LNI s)
+eliminate_dead_code size lni (BiMap ref _ kt) = do
   n_removed <- remove_unused_nodes lni kt size
   when (0 < n_removed)
        (do H.mapM_ (update_input_index lni kt) kt
            modifySTRef' ref (\x -> x - n_removed))
   return lni
-{-# INLINABLE eliminate_dead_code #-}
-
-collect_live_id :: LNI s -> (a, G_Node) -> ST s ()
-collect_live_id lni (_,gn) = mapM_ insert_id (g_node_u_inputs gn)
-  where
-    insert_id nid =
-      case nid of
-        NodeId_U k   -> insertLNI lni k 0
-        NodeId_P k _ -> insertLNI lni k 0
-        _            -> return ()
-{-# INLINE collect_live_id #-}
+{-# INLINE eliminate_dead_code #-}
 
 remove_unused_nodes :: LNI s -> BiMapKT s G_Node -> Int -> ST s Int
 remove_unused_nodes lni kt stop = go 0 0
