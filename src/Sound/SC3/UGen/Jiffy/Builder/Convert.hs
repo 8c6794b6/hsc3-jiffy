@@ -356,8 +356,9 @@ optimize_binops dni dag@(DAG _ om _ _ (BiMap _ _ vt)) = go
             Nothing   -> return ()
     pre x xs = (x:xs)
     post x xs = xs ++ [x]
-    replace k old_nid new_node =
-      resetDNI dni (nid_value old_nid) >> H.insert vt k new_node
+    replace k old_nid new_node = do
+      resetDNI dni (nid_value old_nid)
+      H.insert vt k new_node
 {-# INLINE optimize_binops #-}
 
 optimize_add :: DAG s -> DNI s -> ([NodeId] -> [NodeId])
@@ -378,6 +379,9 @@ optimize_add dag dni f other_rate other_nid nid gn =
                            ,g_node_u_rate=rate}
               return $! Just gn')
      | is_mul_node gn ->
+       -- MulAdd UGen has some constraints for its input arguments. See
+       -- the "canBeMulAdd" class method defined in sclang source file
+       -- "BasicOpUGen.sc".
        dg (do inputs <- mapM get_node_pair g_node_u_inputs
               case inputs of
                 [(nid0,n0),(nid1,n1)]
