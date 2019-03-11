@@ -31,7 +31,6 @@ module Sound.SC3.UGen.Jiffy.Builder
   , mceChannel
   , mceChannels
 
-  , mkUGen
   , mkSimpleUGen
   , mkChannelsArrayUGen
   , mkDemandUGen
@@ -389,29 +388,6 @@ mkUGenFn !n_output uid_fn special name rate_fn inputs = do
                       ,g_node_u_ugenid=uid})
 {-# INLINE mkUGenFn #-}
 
--- | Generalized 'UGen' constructor, for defining binding functions for
--- UGens.
-mkUGen :: Int
-       -- ^ Number of outputs.
-       -> (forall s. DAG s -> ST s UGenId)
-       -- ^ Function to get 'UGenId' for 'g_node_u_ugenid' field.
-       -> Special
-       -- ^ UGen special.
-       -> Name
-       -- ^ UGen name.
-       -> (forall s. [NodeId] -> DAG s -> GraphM s Rate)
-       -- ^ Function to determine the 'Rate' of UGen
-       -> (forall s. [UGen] -> GraphM s [MCE NodeId])
-       -- ^ Function for converting inputs to mce node ids.
-       -> [UGen]
-       -- ^ Input arguments.
-       -> UGen
-mkUGen n_output uid_fn special name rate_fn input_fn input_ugens =
-  G (do let f = mkUGenFn n_output uid_fn special name rate_fn
-        input_mce_nids <- input_fn input_ugens
-        normalize n_output f input_mce_nids)
-{-# INLINABLE mkUGen #-}
-
 -- | Synonym to make 'UGen' binding function.
 type MkUGen
   = Int
@@ -456,6 +432,7 @@ mkDemandUGen _n_output uid_fn special name rate_fn input_ugens =
         normalize n_output f input_mce_ids)
 {-# INLINABLE mkDemandUGen #-}
 
+-- | Dedicated UGen constructor function for localBuf UGen.
 mkLocalBufUGen :: MkUGen
 mkLocalBufUGen n_output uid_fn special name rate_fn input_ugens =
   G (do let f = mkUGenFn n_output uid_fn special name rate_fn
