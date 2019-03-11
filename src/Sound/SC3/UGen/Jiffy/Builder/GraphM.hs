@@ -47,6 +47,9 @@ module Sound.SC3.UGen.Jiffy.Builder.GraphM
 
     -- * Dumper
   , Dump(..)
+
+    -- * Re-export
+  , Name
   ) where
 
 -- base
@@ -65,7 +68,7 @@ import qualified Data.HashTable.ST.Basic as HT
 -- hsc3
 import Sound.SC3
   ( Output, K_Type(..), Rate(..), Sample, Special(..), UGenId )
-import Sound.SC3.Server.Graphdef (Graphdef(..))
+import Sound.SC3.Server.Graphdef (Graphdef(..), Name)
 import Sound.SC3.Server.Graphdef.Graph (graph_to_graphdef)
 import Sound.SC3.UGen.Graph (U_Graph(..))
 import qualified Sound.SC3 as SC3
@@ -212,12 +215,12 @@ data G_Node
   -- ^ Constant node, for 'U_Node_C'.
   | G_Node_K { g_node_k_rate :: !Rate
              , g_node_k_index :: !(Maybe Int)
-             , g_node_k_name :: !String
+             , g_node_k_name :: !Name
              , g_node_k_default :: {-# UNPACK #-} !Sample
              , g_node_k_type :: !K_Type }
   -- ^ Control node, for 'U_Node_K'.
   | G_Node_U { g_node_u_rate :: !Rate
-             , g_node_u_name :: !String
+             , g_node_u_name :: !Name
              , g_node_u_inputs :: [NodeId]
              , g_node_u_outputs :: [Output]
              , g_node_u_special :: {-# UNPACK #-} !Special

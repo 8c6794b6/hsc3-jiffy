@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 -- -----------------------------------------------------------------------
@@ -56,6 +57,9 @@ import Control.Monad.Fail (MonadFail(..))
 #endif
 import Data.Foldable (foldlM, toList)
 import Data.List (transpose)
+
+-- bytestring
+import Data.ByteString.Char8 (pack)
 
 -- hsc3
 import Sound.SC3
@@ -303,7 +307,7 @@ control rate name val = G (fmap MCEU (hashconsK node))
   where
     node = G_Node_K {g_node_k_rate=rate
                     ,g_node_k_index=Nothing
-                    ,g_node_k_name=name
+                    ,g_node_k_name=pack name
                     ,g_node_k_default=val
                     ,g_node_k_type=k_type}
     k_type =
@@ -320,7 +324,7 @@ tr_control name val = G (fmap MCEU (hashconsK node))
   where
     node = G_Node_K {g_node_k_rate=KR
                     ,g_node_k_index=Nothing
-                    ,g_node_k_name=name
+                    ,g_node_k_name=pack name
                     ,g_node_k_default=val
                     ,g_node_k_type=K_TR}
 {-# INLINABLE tr_control #-}
@@ -368,7 +372,7 @@ normalize n_outputs f = go
 mkUGenFn :: forall s. Int
          -> (DAG s -> ST s UGenId)
          -> Special
-         -> String
+         -> Name
          -> ([NodeId] -> DAG s -> GraphM s Rate)
          -> [NodeId]
          -> GraphM s NodeId
@@ -393,7 +397,7 @@ mkUGen :: Int
        -- ^ Function to get 'UGenId' for 'g_node_u_ugenid' field.
        -> Special
        -- ^ UGen special.
-       -> String
+       -> Name
        -- ^ UGen name.
        -> (forall s. [NodeId] -> DAG s -> GraphM s Rate)
        -- ^ Function to determine the 'Rate' of UGen
@@ -416,7 +420,7 @@ type MkUGen
   -- ^ Function to get 'UGenId'.
   -> Special
   -- ^ UGen special.
-  -> String
+  -> Name
   -- ^ UGen name
   -> (forall s. [NodeId] -> DAG s -> GraphM s Rate)
   -- ^ Function to determine the 'Rate' of resulting 'UGen'.

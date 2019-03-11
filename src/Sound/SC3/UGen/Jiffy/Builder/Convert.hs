@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 -- | Functions for converting 'DAG' to graph data types defined in hsc3.
 module Sound.SC3.UGen.Jiffy.Builder.Convert
@@ -17,6 +18,9 @@ import Data.STRef (modifySTRef', readSTRef)
 -- array
 import Data.Array.MArray (newArray, readArray, writeArray)
 import Data.Array.ST (STUArray)
+
+-- bytestring
+import Data.ByteString.Char8 (unpack)
 
 -- hashtable
 import qualified Data.HashTable.Class as H
@@ -83,7 +87,7 @@ mkMaxLocalBufs :: Int -> BiMap s G_Node -> ST s UGen
 mkMaxLocalBufs nbufs cm = do
   nid <- hashconsC' cm (fromIntegral nbufs)
   let i = Input (-1) nid
-  return $! (ascii "MaxLocalBufs",0,[i],[],0)
+  return $! ("MaxLocalBufs",0,[i],[],0)
 {-# INLINE mkMaxLocalBufs #-}
 
 emptyKTable :: Int -> ST s (KTable s)
@@ -127,7 +131,7 @@ to_control_ugens = reverse . snd . foldl' f z
               K_TR -> ug "TrigControl" 1
               K_AR -> ug "AudioControl" 2
           n_outs = length igns
-          ug n r = (ascii n,r,[],replicate n_outs r,idx)
+          ug n r = (n,r,[],replicate n_outs r,idx)
       in  (idx+n_outs, acc')
 {-# INLINE to_control_ugens #-}
 
@@ -142,7 +146,7 @@ groupByKType = groupBy ((==) `on` (g_node_k_type . snd))
 g_node_k_to_control :: Int -> (a, G_Node) -> (Control, Sample)
 g_node_k_to_control i (_, n) =
   case n of
-    G_Node_K {..} -> ((ascii g_node_k_name, i), g_node_k_default)
+    G_Node_K {..} -> ((g_node_k_name, i), g_node_k_default)
     _ -> error ("g_node_k_to_control: non control node " ++ show n)
 {-# INLINE g_node_k_to_control #-}
 
@@ -152,7 +156,7 @@ acc_ugens :: KTable s
           -> (a, G_Node)
           -> ST s [(a, UGen)]
 acc_ugens kt shift acc (k,n) = do
-  let name_bs = ascii (g_node_u_name n)
+  let name_bs = g_node_u_name n
       rate = fromEnum (g_node_u_rate n)
       outs = map fromEnum (g_node_u_outputs n)
       Special sp = g_node_u_special n
@@ -212,7 +216,7 @@ gnode_to_unode nid kshift ushift lni node =
       return (U_Node_K {u_node_id=nid+kshift
                        ,u_node_k_rate=g_node_k_rate
                        ,u_node_k_index=g_node_k_index
-                       ,u_node_k_name=g_node_k_name
+                       ,u_node_k_name=unpack g_node_k_name
                        ,u_node_k_default=g_node_k_default
                        ,u_node_k_type=g_node_k_type
                        ,u_node_k_meta=Nothing})
@@ -223,7 +227,7 @@ gnode_to_unode nid kshift ushift lni node =
         Just new_nid ->
           return (U_Node_U {u_node_id=new_nid+ushift
                            ,u_node_u_rate=g_node_u_rate
-                           ,u_node_u_name=g_node_u_name
+                           ,u_node_u_name=unpack g_node_u_name
                            ,u_node_u_inputs=map n2f g_node_u_inputs
                            ,u_node_u_outputs=g_node_u_outputs
                            ,u_node_u_special=g_node_u_special
