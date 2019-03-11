@@ -22,6 +22,7 @@ module Sound.SC3.UGen.Jiffy.Builder
   , ugen_to_graph
   , ugen_to_graphdef
 
+  , G
   , share
   , constant
   , control
@@ -45,8 +46,6 @@ module Sound.SC3.UGen.Jiffy.Builder
 
   , envelope_to_ugen
   , isSink
-
-  , Dump(..)
   ) where
 
 -- base
@@ -76,6 +75,7 @@ import Control.Monad.Trans.Reader (ReaderT(..), ask)
 import Sound.SC3.Jiffy.Orphan ()
 import Sound.SC3.UGen.Jiffy.Builder.Convert
 import Sound.SC3.UGen.Jiffy.Builder.GraphM
+import Sound.SC3.UGen.Jiffy.Dump
 
 
 --

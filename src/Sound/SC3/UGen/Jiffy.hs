@@ -7,3 +7,4 @@ module Sound.SC3.UGen.Jiffy
 -- Internal
 import Sound.SC3.UGen.Jiffy.Bindings as All
 import Sound.SC3.UGen.Jiffy.Builder as All
+import Sound.SC3.UGen.Jiffy.Dump as All

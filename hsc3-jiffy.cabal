@@ -23,6 +23,7 @@ library
                        Sound.SC3.UGen.Jiffy.Bindings.Composite
                        Sound.SC3.UGen.Jiffy.Bindings.DB
                        Sound.SC3.UGen.Jiffy.Builder
+                       Sound.SC3.UGen.Jiffy.Dump
   other-modules:       Sound.SC3.Jiffy.Orphan
                        Sound.SC3.UGen.Jiffy.Bindings.TH
                        Sound.SC3.UGen.Jiffy.Builder.Convert
