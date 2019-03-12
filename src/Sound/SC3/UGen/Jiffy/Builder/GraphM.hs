@@ -225,29 +225,25 @@ data G_Node
   deriving (Eq, Show)
 
 instance Hashable G_Node where
+  -- Not marking with optional constructor index value, because DAG
+  -- separates BiMap fields for each constructor.
   hashWithSalt s n =
     case n of
       G_Node_C {..} -> s `hashWithSalt`
-                       ci `hashWithSalt`
                        g_node_c_value
       G_Node_K {..} -> s `hashWithSalt`
-                       ck `hashWithSalt`
                        g_node_k_rate `hashWithSalt`
                        g_node_k_index `hashWithSalt`
                        g_node_k_name `hashWithSalt`
                        g_node_k_default `hashWithSalt`
                        g_node_k_type
       G_Node_U {..} -> s `hashWithSalt`
-                       cu `hashWithSalt`
                        g_node_u_rate `hashWithSalt`
                        g_node_u_name `hashWithSalt`
                        g_node_u_inputs `hashWithSalt`
                        g_node_u_outputs `hashWithSalt`
                        g_node_u_special `hashWithSalt`
                        g_node_u_ugenid
-    where
-      ci, ck, cu :: Int
-      (ci,ck,cu) = (0,1,2)
   {-# INLINE hashWithSalt #-}
 
 -- | Data type to represent UGen graph node id for inputs and outputs.
@@ -267,15 +263,15 @@ data NodeId
   deriving (Eq, Ord, Show)
 
 instance Hashable NodeId where
-  -- Not marking with optional constructor index value, because DAG
-  -- separates BiMap fields for each constructor.
+  -- Like in 'G_Node', not marking with optional constructor index
+  -- value.
   hashWithSalt s n =
     case n of
-      NodeId_C k -> s `hashWithSalt` k
+      NodeId_C k   -> s `hashWithSalt` k
       NodeId_K k t -> s `hashWithSalt` k `hashWithSalt` t
-      NodeId_U k -> s `hashWithSalt` k
+      NodeId_U k   -> s `hashWithSalt` k
       NodeId_P k p -> s `hashWithSalt` k `hashWithSalt` p
-      NConstant v -> s `hashWithSalt` v
+      NConstant v  -> s `hashWithSalt` v
   {-# INLINE hashWithSalt #-}
 
 --
