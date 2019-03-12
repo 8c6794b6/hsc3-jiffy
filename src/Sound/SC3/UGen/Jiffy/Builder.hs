@@ -53,6 +53,7 @@ import Control.Monad.ST (ST, runST)
 #if MIN_VERSION_base (4,9,0)
 import Control.Monad.Fail (MonadFail(..))
 #endif
+import Data.Fixed (mod')
 import Data.Foldable (foldlM, toList)
 import Data.List (transpose)
 
@@ -111,7 +112,7 @@ instance MonadFail G where
 -- The UGen type and instance declarations
 --
 
--- In this module, UGen is a type synonym.
+-- | UGen is a type synonym of 'G' with 'MCE' of 'NodeId'.
 type UGen = G (MCE NodeId)
 
 instance Eq UGen where
@@ -125,6 +126,10 @@ instance Ord UGen where
   {-# INLINE max #-}
 
 instance Enum UGen where
+  succ = (+ 1)
+  {-# INLINE succ #-}
+  pred x = x - 1
+  {-# INLINE pred #-}
   toEnum = constant . fromIntegral
   {-# INLINE toEnum #-}
   fromEnum _ = error "G: fromEnum"
@@ -224,19 +229,106 @@ instance Integral UGen where
   toInteger = error "G: toInteger"
 
 instance UnaryOp UGen where
-  cubed = unary_op_with cubed Cubed
-  {-# INLINE cubed #-}
-  midiCPS = unary_op_with midiCPS MIDICPS
-  {-# INLINE midiCPS #-}
+  ampDb = unary_op_with ampDb AmpDb
+  {-# INLINE ampDb #-}
+  asFloat = unary_op AsFloat
+  {-# INLINE asFloat #-}
+  asInt = unary_op AsInt
+  {-# INLINE asInt #-}
   cpsMIDI = unary_op_with cpsMIDI CPSMIDI
   {-# INLINE cpsMIDI #-}
+  cpsOct = unary_op_with cpsOct CPSOct
+  {-# INLINE cpsOct #-}
+  cubed = unary_op_with cubed Cubed
+  {-# INLINE cubed #-}
+  dbAmp = unary_op_with dbAmp DbAmp
+  {-# INLINE dbAmp #-}
+  distort = unary_op_with distort Distort
+  {-# INLINE distort #-}
+  frac = unary_op Frac
+  {-# INLINE frac #-}
+  isNil = unary_op_with isNil IsNil
+  {-# INLINE isNil #-}
+  log10 = unary_op_with log10 Log10
+  {-# INLINE log10 #-}
+  log2 = unary_op_with log2 Log2
+  {-# INLINE log2 #-}
+  midiCPS = unary_op_with midiCPS MIDICPS
+  {-# INLINE midiCPS #-}
   midiRatio = unary_op_with midiRatio MIDIRatio
   {-# INLINE midiRatio #-}
+  notE = unary_op_with notE Not
+  {-# INLINE notE #-}
+  notNil = unary_op_with notNil NotNil
+  {-# INLINE notNil #-}
+  octCPS = unary_op_with octCPS OctCPS
+  {-# INLINE octCPS #-}
+  ramp_ = unary_op Ramp_
+  {-# INLINE ramp_ #-}
   ratioMIDI = unary_op_with ratioMIDI RatioMIDI
   {-# INLINE ratioMIDI #-}
+  softClip = unary_op_with softClip SoftClip
+  {-# INLINE softClip #-}
+  squared = unary_op_with squared Squared
+  {-# INLINE squared #-}
 
 instance BinaryOp UGen where
+  absDif = binary_op_with absDif AbsDif
+  {-# INLINE absDif #-}
+  amClip = binary_op_with amClip AMClip
+  {-# INLINE amClip #-}
+  atan2E = binary_op_with atan2E Atan2
+  {-# INLINE atan2E #-}
   clip2 = binary_op_with clip2 Clip2
+  {-# INLINE clip2 #-}
+  difSqr = binary_op_with difSqr DifSqr
+  {-# INLINE difSqr #-}
+  excess = binary_op_with excess Excess
+  {-# INLINE excess #-}
+  exprandRange = binary_op_with exprandRange ExpRandRange
+  {-# INLINE exprandRange #-}
+  fill = binary_op Fill
+  {-# INLINE fill #-}
+  firstArg = binary_op_with firstArg FirstArg
+  {-# INLINE firstArg #-}
+  fold2 = binary_op_with fold2 Fold2
+  {-# INLINE fold2 #-}
+  gcdE = binary_op GCD
+  {-# INLINE gcdE #-}
+  hypot = binary_op_with hypot Hypot
+  {-# INLINE hypot #-}
+  hypotx = binary_op_with hypotx Hypotx
+  {-# INLINE hypotx #-}
+  iDiv = binary_op_with iDiv IDiv
+  {-# INLINE iDiv #-}
+  lcmE = binary_op LCM
+  {-# INLINE lcmE #-}
+  modE = binary_op_with mod' Mod
+  {-# INLINE modE #-}
+  randRange = binary_op RandRange
+  {-# INLINE randRange #-}
+  ring1 = binary_op_with ring1 Ring1
+  {-# INLINE ring1 #-}
+  ring2 = binary_op_with ring2 Ring2
+  {-# INLINE ring2 #-}
+  ring3 = binary_op_with ring3 Ring3
+  {-# INLINE ring3 #-}
+  ring4 = binary_op_with ring4 Ring4
+  {-# INLINE ring4 #-}
+  roundUp = binary_op_with roundUp RoundUp
+  {-# INLINE roundUp #-}
+  scaleNeg = binary_op_with scaleNeg ScaleNeg
+  {-# INLINE scaleNeg #-}
+  sqrDif = binary_op_with sqrDif SqrDif
+  {-# INLINE sqrDif #-}
+  sqrSum = binary_op_with sqrSum SqrSum
+  {-# INLINE sqrSum #-}
+  thresh = binary_op_with thresh Thresh
+  {-# INLINE thresh #-}
+  trunc = binary_op Trunc
+  {-# INLINE trunc #-}
+  wrap2 = binary_op_with wrap2 Wrap2
+  {-# INLINE wrap2 #-}
 
 instance Dump UGen where
   dumpString = dumpString . ugen_to_graphdef "<dump>"
@@ -246,18 +338,19 @@ instance Dump UGen where
 --
 
 ugen_to_graphdef :: String -> UGen -> Graphdef
-ugen_to_graphdef name (G g) =
-  runST (do dag <- emptyDAG
-            _ <- runReaderT g dag
-            dag_to_Graphdef name dag)
+ugen_to_graphdef name = runUGen (dag_to_Graphdef name)
 {-# INLINABLE ugen_to_graphdef #-}
 
 ugen_to_graph :: UGen -> U_Graph
-ugen_to_graph (G m) =
-  runST (do dag <- emptyDAG
-            _ <- runReaderT m dag
-            dag_to_U_Graph dag)
+ugen_to_graph = runUGen dag_to_U_Graph
 {-# INLINABLE ugen_to_graph #-}
+
+runUGen :: (forall s. DAG s -> ST s a) -> UGen -> a
+runUGen f (G g) =
+  runST (do dag <- emptyDAG
+            _ <- runReaderT g dag
+            f dag)
+{-# INLINE runUGen #-}
 
 --
 -- Constant, control, and UGen constructors
@@ -300,7 +393,7 @@ constant :: Sample -> UGen
 constant v = G (return (MCEU (NConstant v)))
 {-# INLINE constant #-}
 
--- | Create control value node.
+-- | Create a control node with given rate, name, and default value.
 control :: Rate -> String -> Sample -> UGen
 control rate name val = G (fmap MCEU (hashconsK node))
   where
@@ -314,10 +407,10 @@ control rate name val = G (fmap MCEU (hashconsK node))
         IR -> K_IR
         KR -> K_KR
         AR -> K_AR
-        DR -> error "rate_to_ktype: DR control"
+        DR -> error "control: DR"
 {-# INLINABLE control #-}
 
--- | Create trigger control.
+-- | Create a trigger control node.
 tr_control :: String -> Sample -> UGen
 tr_control name val = G (fmap MCEU (hashconsK node))
   where
@@ -466,6 +559,14 @@ unary_op_with fn op a =
         normalize 1 f [input_mce_nid])
 {-# INLINEABLE unary_op_with #-}
 
+unary_op :: Unary -> UGen -> UGen
+unary_op op a = mkSimpleUGen 1 noId special name r_fn [a]
+  where
+    special = Special (fromEnum op)
+    name = "UnaryOpUGen"
+    r_fn = get_rate_at 0
+{-# INLINE unary_op #-}
+
 -- | Make a binary operator UGen, with constant folding function applied
 -- to 'NConstant' input values.
 binary_op_with :: (Sample -> Sample -> Sample)
@@ -478,14 +579,14 @@ binary_op_with fn op a b =
                   return $ NConstant (fn v0 v1)
                 [NConstant v0, nid1] -> do
                   dag <- ask
-                  nid0' <- hashconsC (G_Node_C v0)
+                  nid0 <- hashconsC (G_Node_C v0)
                   n1 <- lookup_g_node nid1 dag
-                  mkU (max IR (g_node_rate n1)) [nid0',nid1]
+                  mkU (max IR (g_node_rate n1)) [nid0,nid1]
                 [nid0, NConstant v1] -> do
                   dag <- ask
                   n0 <- lookup_g_node nid0 dag
-                  nid1' <- hashconsC (G_Node_C v1)
-                  mkU (max (g_node_rate n0) IR) [nid0,nid1']
+                  nid1 <- hashconsC (G_Node_C v1)
+                  mkU (max (g_node_rate n0) IR) [nid0,nid1]
                 [nid0, nid1] -> do
                   dag <- ask
                   n0 <- lookup_g_node nid0 dag

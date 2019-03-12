@@ -354,11 +354,11 @@ mce_list m =
 nid_value :: NodeId -> Int
 nid_value nid =
   case nid of
-    NodeId_C i -> i
+    NodeId_C i   -> i
     NodeId_K i _ -> i
-    NodeId_U i -> i
+    NodeId_U i   -> i
     NodeId_P i _ -> i
-    NConstant v -> error ("nid_value: constant " ++ show v)
+    NConstant v  -> error ("nid_value: constant " ++ show v)
 {-# INLINE nid_value #-}
 
 lookup_g_node :: NodeId -> DAG s -> GraphM s G_Node
@@ -368,11 +368,11 @@ lookup_g_node nid dag = lift (lookup_g_node' nid dag)
 lookup_g_node' :: NodeId -> DAG s -> ST s G_Node
 lookup_g_node' nid dag =
   case nid of
-    NodeId_C k -> lookup_val k (cmap dag)
+    NodeId_C k   -> lookup_val k (cmap dag)
     NodeId_K k _ -> lookup_val k (kmap dag)
-    NodeId_U k -> lookup_val k (umap dag)
+    NodeId_U k   -> lookup_val k (umap dag)
     NodeId_P k _ -> lookup_val k (umap dag)
-    NConstant v -> error ("lookup_g_node: constant " ++ show v)
+    NConstant v  -> error ("lookup_g_node: constant " ++ show v)
 {-# INLINE lookup_g_node' #-}
 
 g_node_rate :: G_Node -> Rate

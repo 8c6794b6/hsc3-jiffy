@@ -325,13 +325,13 @@ count_descendants size dni (BiMap _ _ kt) = go 0
 optimize_binops :: DNI s -> DAG s -> ST s ()
 optimize_binops dni dag@(DAG _ om _ _ (BiMap _ _ vt)) = go
   where
-    -- Sort the operator by node id, and perform node lookup each
-    -- time. The fields in OpArgs data type are 'NodeId', so that Add
-    -- nodes could optimized to Sum3, and then the Sum3 nodes could
-    -- optimized to Sum4, ... etc.
+    -- Sort the operator by node id, and perform node lookup for each
+    -- operator. The fields in OpArgs data type are 'NodeId', so that
+    -- 'Add' nodes could optimized to 'Sum3', and then the 'Sum3' nodes
+    -- could optimized to 'Sum4', ... etc.
     go = do ops <- sortBy (compare `on` fst) <$> toListOM om
-            mapM_ optimize_when_possible ops
-    optimize_when_possible (k, oparg) =
+            mapM_ optimize_binop ops
+    optimize_binop (k, oparg) =
       case oparg of
         AddArgs nid0 nid1 -> do
           n0 <- lookup_g_node' nid0 dag
