@@ -272,6 +272,15 @@ pv_graph = describe "pv" $ do
            in  S.out 0 (S.ifft' c * 0.1)
   same_graph j0 h0
 
+composite_graph :: Spec
+composite_graph =
+  describe "composite" $ do
+    describe "wrapOut" $ do
+      let j0 = sinOsc AR 440 0
+          j1 = wrapOut (wrapOut (wrapOut j0))
+          h1 = S.out 0 (S.sinOsc AR 440 0)
+      same_graph j1 h1
+
 --
 -- Exported
 --
@@ -289,4 +298,5 @@ hsc3Tests =
                optimize_graph
                demand_graph
                envelope_graph
-               pv_graph)
+               pv_graph
+               composite_graph)
