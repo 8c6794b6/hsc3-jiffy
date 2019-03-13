@@ -1,3 +1,4 @@
+cabal-version:       >= 1.10
 name:                hsc3-jiffy
 version:             0.1.0.0
 synopsis:            Fast synthdef builder with hsc3
@@ -11,7 +12,6 @@ copyright:           (c) 2019, 8c6794b6
 category:            Sound
 build-type:          Simple
 extra-source-files:  README.md
-cabal-version:       >= 1.10
 
 library
   hs-source-dirs:      src
