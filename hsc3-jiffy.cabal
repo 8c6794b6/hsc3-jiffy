@@ -1,8 +1,8 @@
 cabal-version:       >= 1.10
 name:                hsc3-jiffy
 version:             0.1.0.0
-synopsis:            Fast synthdef builder with hsc3
-description:         Fast synthdef builder with hsc3
+synopsis:            Efficient synthdef builder for hsc3
+description:         Efficient synthdef builder for hsc3
 homepage:            https://github.com/8c6794b6/hs3-jiffy#readme
 license:             BSD3
 license-file:        LICENSE
