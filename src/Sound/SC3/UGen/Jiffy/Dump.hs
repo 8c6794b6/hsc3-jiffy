@@ -1,4 +1,5 @@
 -- | Dump UGens in synthdef graph.
+{-# LANGUAGE FlexibleInstances #-}
 module Sound.SC3.UGen.Jiffy.Dump
   ( Dump(..)
   ) where
@@ -9,8 +10,12 @@ import Data.List (intercalate)
 -- hsc3
 import Sound.SC3.Server.Graphdef (Graphdef(..))
 import Sound.SC3.Server.Graphdef.Graph (graph_to_graphdef)
-import Sound.SC3.UGen.Graph (U_Graph(..), ugen_to_graph)
+import Sound.SC3.UGen.Graph (U_Graph(..))
 import qualified Sound.SC3 as SC3
+import qualified Sound.SC3.UGen.Graph as SC3UG
+
+-- Internal
+import Sound.SC3.UGen.Jiffy.Builder
 
 --
 -- Dumper
@@ -29,7 +34,11 @@ instance Dump Graphdef where
 
 instance Dump SC3.UGen where
   dumpString =
-    dumpString . graph_to_graphdef "<dump>" . ugen_to_graph
+    dumpString . graph_to_graphdef "<dump>" . SC3UG.ugen_to_graph
+
+instance Dump UGen where
+  dumpString = dumpString . ugen_to_graphdef "<dump>"
+
 
 dump_u_graph :: U_Graph -> String
 dump_u_graph ugraph =

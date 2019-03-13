@@ -32,7 +32,10 @@ ugenDecsQ = sequence (concatMap defineUGen ugenDB)
 -- binding function of given 'U'.
 defineUGen :: U -> [DecQ]
 defineUGen u =
-  let name = mkName (ugen_hs_name u)
+  let name = case ugen_hs_name u of
+               -- Avoid conflict with "Prelude.max".
+               "max" -> mkName "max_"
+               other -> mkName other
       rate_name = mkName "rate"
       numchan_name = mkName "numChannels"
       scnameE = stringE (ugen_name u)
@@ -75,14 +78,10 @@ defineUGen u =
                    then [e|hashUId|]
                    else [e|noId|]
       mk
-        | "LocalBuf" == ugen_name u
-        = [e|mkLocalBufUGen|]
-        | Nothing <- ugen_outputs u, not (ugen_nc_input u)
-        = [e|mkDemandUGen|] -- special case for 'demand'.
-        | ugen_std_mce u > 0
-        = [e|mkChannelsArrayUGen|]
-        | otherwise
-        = [e|mkSimpleUGen|]
+        | "LocalBuf" == ugen_name u = [e|mkLocalBufUGen|]
+        | "Demand" == ugen_name u   = [e|mkDemandUGen|]
+        | ugen_std_mce u > 0        = [e|mkChannelsArrayUGen|]
+        | otherwise                 = [e|mkSimpleUGen|]
       ugenT = [t|UGen|]
       bodyE = [e|$(mk) $(noutE) $(ugenidE) spec0 $(scnameE)
                        $(rateE) $(listE input_exps)|]

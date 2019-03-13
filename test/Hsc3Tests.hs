@@ -157,6 +157,15 @@ mix_mce_graph = do
                y = S.mouseY KR 0 1 Linear 0.1
            in  S.out 0 (S.freeVerb2 (c 0 i) (c 1 i) y x 0.5)
   describe "mceChannel" $ same_graph j2 h2
+  let j3 = let p1 = mce [440,660,990,1320]
+               p2 = mce [0,1]
+               o = sinOsc AR p1 p2
+           in  out 0 (mix o * 0.2)
+      h3 = let p1 = S.mce [440,660,990,1320]
+               p2 = S.mce [0,1]
+               o = S.sinOsc AR p1 p2
+           in  S.out 0 (S.mix o * 0.2)
+  describe "mceExtend" $ same_graph j3 h3
 
 nondet_graph :: Spec
 nondet_graph = describe "nondet" $ do

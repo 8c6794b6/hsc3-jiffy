@@ -19,6 +19,7 @@
 
 module Sound.SC3.UGen.Jiffy.Builder
   ( UGen
+  , runUGen
   , ugen_to_graph
   , ugen_to_graphdef
 
@@ -55,6 +56,7 @@ import Control.Monad.Fail (MonadFail(..))
 #endif
 import Data.Fixed (mod')
 import Data.Foldable (foldlM, toList)
+import Data.Function (on)
 import Data.List (transpose)
 
 -- bytestring
@@ -76,7 +78,6 @@ import Control.Monad.Trans.Reader (ReaderT(..), ask)
 import Sound.SC3.Jiffy.Orphan ()
 import Sound.SC3.UGen.Jiffy.Builder.Convert
 import Sound.SC3.UGen.Jiffy.Builder.GraphM
-import Sound.SC3.UGen.Jiffy.Dump
 
 
 --
@@ -116,10 +117,15 @@ instance MonadFail G where
 type UGen = G (MCE NodeId)
 
 instance Eq UGen where
-  _ == _ = error "G: =="
+  (==) = (==) `on` (ugen_to_graphdef "(Eq.==)")
+  {-# INLINE (==) #-}
 
 instance Ord UGen where
-  compare _ _ = error "G: compare"
+  compare a b =
+    case (runUGen a, runUGen b) of
+      (MCEU (NConstant x), MCEU (NConstant y)) -> compare x y
+      _ -> error "compare: non-constant values"
+  {-# INLINE compare #-}
   min = binary_op_with min Min
   {-# INLINE min #-}
   max = binary_op_with max Max
@@ -132,17 +138,25 @@ instance Enum UGen where
   {-# INLINE pred #-}
   toEnum = constant . fromIntegral
   {-# INLINE toEnum #-}
-  fromEnum _ = error "G: fromEnum"
+  fromEnum g = case runUGen g of
+                    MCEU (NConstant v) -> fromEnum v
+                    _ -> error "fromEnum: non-constant value"
+  {-# INLINE fromEnum #-}
   enumFrom = iterate (+ 1)
   {-# INLINE enumFrom #-}
   enumFromThen n m = iterate (+ (m - n)) n
   {-# INLINE enumFromThen #-}
-  enumFromTo n m = takeWhile (<= m+1/2) (enumFrom n)
+  enumFromTo a b =
+    case (runUGen a, runUGen b) of
+      (MCEU (NConstant a'), MCEU (NConstant b')) ->
+        map constant (enumFromTo a' b')
+      _ -> error "enumFromTo: non-constant value"
   {-# INLINE enumFromTo #-}
-  enumFromThenTo n n' m =
-    let p | n' >= n   = (>=)
-          | otherwise = (<=)
-    in  takeWhile (p (m + (n'-n)/2)) (enumFromThen n n')
+  enumFromThenTo a1 a2 b =
+    case (runUGen a1, runUGen a2, runUGen b) of
+      (MCEU (NConstant a1'), MCEU (NConstant a2'), MCEU (NConstant b')) ->
+        map constant (enumFromThenTo a1' a2' b')
+      _ -> error "enumFromThenTo: non-constant value"
   {-# INLINE enumFromThenTo #-}
 
 instance Num UGen where
@@ -162,7 +176,10 @@ instance Num UGen where
   {-# INLINE negate #-}
 
 instance Real UGen where
-  toRational = error "G: toRational"
+  toRational g = case runUGen g of
+                   MCEU (NConstant v) -> toRational v
+                   _ -> error "toRational: non-constant value"
+  {-# INLINE toRational #-}
 
 instance Fractional UGen where
   recip = unary_op_with recip Recip
@@ -201,9 +218,11 @@ instance Floating UGen where
   {-# INLINE sinh #-}
   cosh = unary_op_with cosh CosH
   {-# INLINE cosh #-}
-  asinh x = log (sqrt (x*x+1) + x)
+  tanh = unary_op_with tanh TanH
+  {-# INLINE tanh #-}
+  asinh x = log (x + sqrt (x*x+1))
   {-# INLINE asinh #-}
-  acosh x = log (sqrt (x*x-1) + x)
+  acosh x = log (x + sqrt (x*x-1))
   {-# INLINE acosh #-}
   atanh x = (log (1+x) - log (1-x)) / 2
   {-# INLINE atanh #-}
@@ -227,6 +246,9 @@ instance Integral UGen where
   mod = binary_op Mod
   {-# INLINE mod #-}
   toInteger = error "G: toInteger"
+
+instance Show UGen where
+  showsPrec _ _ = showString "<UGen>"
 
 instance UnaryOp UGen where
   ampDb = unary_op_with ampDb AmpDb
@@ -285,7 +307,8 @@ instance BinaryOp UGen where
   {-# INLINE difSqr #-}
   excess = binary_op_with excess Excess
   {-# INLINE excess #-}
-  exprandRange = binary_op_with exprandRange ExpRandRange
+  -- exprandRange = binary_op_with exprandRange ExpRandRange
+  exprandRange = binary_op ExpRandRange
   {-# INLINE exprandRange #-}
   fill = binary_op Fill
   {-# INLINE fill #-}
@@ -330,27 +353,28 @@ instance BinaryOp UGen where
   wrap2 = binary_op_with wrap2 Wrap2
   {-# INLINE wrap2 #-}
 
-instance Dump UGen where
-  dumpString = dumpString . ugen_to_graphdef "<dump>"
-
 --
 -- Converting to U_Graph and Graphdef
 --
 
 ugen_to_graphdef :: String -> UGen -> Graphdef
-ugen_to_graphdef name = runUGen (dag_to_Graphdef name)
+ugen_to_graphdef name = runUGenWith (dag_to_Graphdef name)
 {-# INLINABLE ugen_to_graphdef #-}
 
 ugen_to_graph :: UGen -> U_Graph
-ugen_to_graph = runUGen dag_to_U_Graph
+ugen_to_graph = runUGenWith dag_to_U_Graph
 {-# INLINABLE ugen_to_graph #-}
 
-runUGen :: (forall s. DAG s -> ST s a) -> UGen -> a
-runUGen f (G g) =
+runUGen :: G a -> a
+runUGen (G g) = runST (emptyDAG >>= runReaderT g)
+{-# INLINE runUGen #-}
+
+runUGenWith :: (forall s. DAG s -> ST s a) -> UGen -> a
+runUGenWith f (G g) =
   runST (do dag <- emptyDAG
             _ <- runReaderT g dag
             f dag)
-{-# INLINE runUGen #-}
+{-# INLINE runUGenWith #-}
 
 --
 -- Constant, control, and UGen constructors
@@ -435,7 +459,7 @@ tr_control name val = G (fmap MCEU (hashconsK node))
 -- nodes.
 
 -- | Recursively expand multi channel inputs, and if the number of
--- outputs were greater than 1, make proxy node ids.
+-- outputs were greater than 1, make output proxy node ids.
 normalize :: Int
           -- ^ Number of outputs.
           -> ([NodeId] -> GraphM s NodeId)
@@ -725,9 +749,7 @@ const_rate !r _ _ = return r
 
 -- | Get rate from index of 'NodeId' argument.
 get_rate_at :: Int -> [NodeId] -> DAG s -> GraphM s Rate
-get_rate_at !i nids dag = do
-  n <- lookup_g_node (nids !! i) dag
-  return $ g_node_rate n
+get_rate_at !i nids dag = g_node_rate <$> lookup_g_node (nids !! i) dag
 {-# INLINE get_rate_at #-}
 
 -- | Get maximum rate from selected node ids by input argument indices.

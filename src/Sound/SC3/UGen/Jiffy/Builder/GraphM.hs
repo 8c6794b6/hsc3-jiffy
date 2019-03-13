@@ -92,9 +92,6 @@ data DAG s =
       , kmap :: {-# UNPACK #-} !(BiMap s G_Node)
       , umap :: {-# UNPACK #-} !(BiMap s G_Node) }
 
-instance Show (DAG s) where
-  show _ = "<DAG>"
-
 -- | Make a new empty 'DAG' in 'ST' monad, with heuristically selected
 -- initial sizes for internal hash tables.
 emptyDAG :: ST s (DAG s)
@@ -260,7 +257,7 @@ data NodeId
   | NConstant {-# UNPACK #-} !Sample
   -- ^ Constant value not yet stored in DAG. This constructor is used
   -- for constant folding in unary and binary operator functions.
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Show)
 
 instance Hashable NodeId where
   -- Like in 'G_Node', not marking with optional constructor index
@@ -283,7 +280,7 @@ data MCE a
   = MCEU !a
   | MCEV {-# UNPACK #-} !Int -- ^ Number of channels.
          [MCE a]             -- ^ Channel contents.
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Show)
 
 instance Functor MCE where
   fmap f = go
@@ -305,17 +302,6 @@ instance Traversable MCE where
       go (MCEU a) =  MCEU <$> f a
       go (MCEV n as) = MCEV n <$> traverse go as
   {-# INLINE traverse #-}
-
-instance Applicative MCE where
-  pure = MCEU
-  {-# INLINE pure #-}
-  f <*> x =
-    case f of
-      MCEU g    | MCEU y  <- x   -> MCEU (g y)
-                | MCEV n ys <- x -> MCEV n (fmap (fmap g) ys)
-      MCEV n gs | MCEU _  <- x   -> MCEV n (fmap (<*> x) gs)
-                | MCEV m ys <- x -> MCEV (min n m) (zipWith (<*>) gs ys)
-  {-# INLINE (<*>) #-}
 
 mce_extend :: Int -> MCE a -> MCE a
 mce_extend !n m =
