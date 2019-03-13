@@ -1,11 +1,22 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE FlexibleInstances #-}
--- | Hand-written composite UGen functions.
-module Sound.SC3.UGen.Jiffy.Bindings.Composite
-  ( dup
+-- | Handwritten UGen bindings.
+module Sound.SC3.UGen.Jiffy.Bindings.Handwritten
+  ( -- * Not defined with hsc3-db data
+    clearBuf
+  -- , dwrand
+  , packFFT
+  -- , pv_HainsworthFoote
+  , sendReply
+  , unpack1FFT
+
+    -- * Composite UGen functions
+  , asLocalBuf
+  , dup
   , fft'
-  , ifft'
   , mix
+  , ifft'
+  , unpackFFT
   , wrapOut
   ) where
 
@@ -19,7 +30,7 @@ import Sound.SC3.Server.Command.Plain (d_recv_bytes, s_new)
 
 -- Internal
 import Sound.SC3.Jiffy.Encode (encode_graphdef)
-import Sound.SC3.UGen.Jiffy.Bindings.DB
+import Sound.SC3.UGen.Jiffy.Bindings.Generated
 import Sound.SC3.UGen.Jiffy.Builder
 import Sound.SC3.UGen.Jiffy.Builder.GraphM
 
@@ -27,10 +38,9 @@ import Sound.SC3.UGen.Jiffy.Builder.GraphM
 -- Orphan instance
 --
 
--- 'Audible' instance for 'UGen' is defined here, since the 'out' UGen,
--- whiich is generated from template haskell code, is referred from
--- definition body via 'wrapOut'.
-
+-- | 'Audible' instance for 'UGen' is defined here, since the 'out'
+-- UGen, whiich is generated from template haskell code, is referred
+-- from definition body via 'wrapOut'.
 instance Audible UGen where
   play_at (nid,aa,gid,params) ug =
     let gd = ugen_to_graphdef "anon" (wrapOut ug)
@@ -39,8 +49,36 @@ instance Audible UGen where
     in  sendMessage (withCM dr sn)
 
 --
--- Hand-written Functions
+-- Not defined with hsc3-db data
 --
+
+clearBuf :: UGen -> UGen
+clearBuf = error "clearBuf"
+
+-- dwrand :: UGen -> UGen -> UGen -> UGen
+-- dwrand = error "dwrand"
+
+packFFT :: UGen -> Int -> Int -> Int -> UGen -> UGen -> UGen
+packFFT = error "packFFT"
+
+-- poll?
+
+-- pv_HainsworthFoote :: UGen -> UGen -> UGen -> UGen -> UGen -> UGen
+-- pv_HainsworthFoote = error "pv_HainsworthFoote"
+
+sendReply :: UGen -> UGen -> String -> [UGen] -> UGen
+sendReply = error "sendReply"
+
+unpack1FFT :: UGen -> UGen -> UGen -> UGen -> UGen
+unpack1FFT = error "unpack1FFT"
+
+
+--
+-- Composite UGen functions
+--
+
+asLocalBuf :: [UGen] -> UGen
+asLocalBuf = error "asLocalBuf"
 
 -- | Duplicate given 'UGen' for given number.
 dup :: Int -> UGen -> UGen
@@ -73,6 +111,9 @@ fft' buf i = fft buf i 0.5 0 1 0
 -- | Jiffy version of 'Sound.SC3.UGen.Composite.ifft''.
 ifft' :: UGen -> UGen
 ifft' buf = ifft buf 0 0
+
+unpackFFT :: UGen -> Int -> Int -> Int -> UGen -> [UGen]
+unpackFFT = error "unpackFFT"
 
 -- | Jiffy version of 'Sound.SC3.UGen.Bindings.Composite.wrapOut'.
 wrapOut :: UGen -> UGen
