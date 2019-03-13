@@ -38,7 +38,8 @@ import qualified Sound.SC3.Server.Graphdef as Graphdef
 
 -- Internal
 import Sound.SC3.Jiffy.Encode
-import Sound.SC3.UGen.Jiffy
+import Sound.SC3.UGen.Jiffy.Bindings
+import Sound.SC3.UGen.Jiffy.Builder
 
 
 --

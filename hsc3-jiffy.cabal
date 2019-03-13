@@ -18,12 +18,12 @@ library
   exposed-modules:     Sound.SC3.Jiffy
                        Sound.SC3.Jiffy.Compat
                        Sound.SC3.Jiffy.Encode
+                       Sound.SC3.Jiffy.DumpUGens
                        Sound.SC3.UGen.Jiffy
                        Sound.SC3.UGen.Jiffy.Bindings
                        Sound.SC3.UGen.Jiffy.Bindings.Composite
                        Sound.SC3.UGen.Jiffy.Bindings.DB
                        Sound.SC3.UGen.Jiffy.Builder
-                       Sound.SC3.UGen.Jiffy.Dump
   other-modules:       Sound.SC3.Jiffy.Orphan
                        Sound.SC3.UGen.Jiffy.Bindings.TH
                        Sound.SC3.UGen.Jiffy.Builder.Convert

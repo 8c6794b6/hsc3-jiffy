@@ -14,6 +14,7 @@ module Sound.SC3.Jiffy
   ( -- * Re-exported modules
     module Sound.SC3.Common
   , module Sound.SC3.Jiffy.Compat
+  , module Sound.SC3.Jiffy.DumpUGens
   , module Sound.SC3.UGen.Jiffy
 
     -- * Re-exported functions from Sound.SC3.Server.Monad
@@ -32,4 +33,5 @@ import Sound.SC3.Server.Monad hiding
 
 -- Internal
 import Sound.SC3.Jiffy.Compat
+import Sound.SC3.Jiffy.DumpUGens
 import Sound.SC3.UGen.Jiffy
