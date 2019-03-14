@@ -23,7 +23,6 @@ module Sound.SC3.UGen.Jiffy.Builder
   , ugen_to_graph
   , ugen_to_graphdef
 
-  , G
   , share
   , constant
   , control
@@ -33,6 +32,7 @@ module Sound.SC3.UGen.Jiffy.Builder
   , mceChannel
   , mceChannels
 
+  , MkUGen
   , mkSimpleUGen
   , mkChannelsArrayUGen
   , mkDemandUGen
@@ -47,6 +47,10 @@ module Sound.SC3.UGen.Jiffy.Builder
 
   , envelope_to_ugen
   , isSink
+
+  , G
+  , MCE
+  , NodeId
   ) where
 
 -- base
@@ -138,13 +142,21 @@ instance Enum UGen where
   {-# INLINE pred #-}
   toEnum = constant . fromIntegral
   {-# INLINE toEnum #-}
-  fromEnum g = case runUGen g of
-                    MCEU (NConstant v) -> fromEnum v
-                    _ -> error "fromEnum: non-constant value"
+  fromEnum g =
+    case runUGen g of
+      MCEU (NConstant v) -> fromEnum v
+      _ -> error "fromEnum: non-constant value"
   {-# INLINE fromEnum #-}
-  enumFrom = iterate (+ 1)
+  enumFrom a =
+    case runUGen a of
+      MCEU (NConstant a') -> map constant (enumFrom a')
+      _ -> error "enumFrom: non-constant value"
   {-# INLINE enumFrom #-}
-  enumFromThen n m = iterate (+ (m - n)) n
+  enumFromThen a b =
+    case (runUGen a, runUGen b) of
+      (MCEU (NConstant a'), MCEU (NConstant b')) ->
+        map constant (enumFromThen a' b')
+      _ -> error "enumFromThen: non-constant value"
   {-# INLINE enumFromThen #-}
   enumFromTo a b =
     case (runUGen a, runUGen b) of
@@ -622,10 +634,8 @@ binary_op_with fn op a b =
                                   ,g_node_u_name="BinaryOpUGen"
                                   ,g_node_u_inputs=inputs
                                   ,g_node_u_outputs=[rate]
-                                  ,g_node_u_special=special
+                                  ,g_node_u_special=Special (fromEnum op)
                                   ,g_node_u_ugenid=NoId})
-            special = Special opnum
-            opnum = fromEnum op
         a' <- unG a
         b' <- unG b
         normalize 1 f [a',b'])
@@ -660,17 +670,19 @@ binary_add_inner :: [NodeId] -> GraphM s NodeId
 binary_add_inner inputs =
   case inputs of
     [NConstant a, NConstant b] -> return (NConstant (a+b))
+    [NConstant 0, nid1] -> return nid1
     [NConstant a, nid1] -> do
       nid0 <- hashconsC (G_Node_C a)
       dag <- ask
       n1 <- lookup_g_node nid1 dag
-      me <- mkU (max IR (g_node_rate n1)) [nid0,nid1]
+      me <- mkAdd (max IR (g_node_rate n1)) [nid0,nid1]
       registerOp dag me (AddArgs nid0 nid1)
+    [nid0, NConstant 0] -> return nid0
     [nid0, NConstant b] -> do
       nid1 <- hashconsC (G_Node_C b)
       dag <- ask
       n0 <- lookup_g_node nid0 dag
-      me <- mkU (max IR (g_node_rate n0)) [nid0,nid1]
+      me <- mkAdd (max IR (g_node_rate n0)) [nid0,nid1]
       registerOp dag me (AddArgs nid0 nid1)
     [nid0, nid1] -> do
       dag <- ask
@@ -678,11 +690,11 @@ binary_add_inner inputs =
       n1 <- lookup_g_node nid1 dag
       let rate0 = g_node_rate n0
           rate1 = g_node_rate n1
-      me <- mkU (max rate0 rate1) [nid0,nid1]
+      me <- mkAdd (max rate0 rate1) [nid0,nid1]
       registerOp dag me (AddArgs nid0 nid1)
     _ -> error "binary_add_inner: bad inputs"
   where
-    mkU rate ins =
+    mkAdd rate ins =
       hashconsU (G_Node_U {g_node_u_rate=rate
                           ,g_node_u_name="BinaryOpUGen"
                           ,g_node_u_inputs=ins
@@ -702,27 +714,42 @@ binary_sub_inner :: [NodeId] -> GraphM s NodeId
 binary_sub_inner inputs =
   case inputs of
     [NConstant a, NConstant b] -> return (NConstant (a - b))
+    [NConstant 0, nid1] -> do
+      n1 <- ask >>= lookup_g_node nid1
+      mkNeg (g_node_rate n1) nid1
     [NConstant a, nid1] -> do
       nid0 <- hashconsC (G_Node_C a)
       dag <- ask
       n1 <- lookup_g_node nid1 dag
-      me <- mkU (max IR (g_node_rate n1)) [nid0,nid1]
+      me <- mkSub (max IR (g_node_rate n1)) [nid0,nid1]
       registerOp dag me (SubArgs nid0 nid1)
+    [nid0, NConstant 0] -> return nid0
     [nid0, NConstant b] -> do
       nid1 <- hashconsC (G_Node_C b)
       n0 <- ask >>= lookup_g_node nid0
-      mkU (max IR (g_node_rate n0)) [nid0,nid1]
+      mkSub (max IR (g_node_rate n0)) [nid0,nid1]
     [nid0,nid1] -> do
       dag <- ask
       n0 <- lookup_g_node nid0 dag
       n1 <- lookup_g_node nid1 dag
       let r0 = g_node_rate n0
           r1 = g_node_rate n1
-      me <- mkU (max r0 r1) [nid0,nid1]
-      registerOp dag me (SubArgs nid0 nid1)
+      case n0 of
+        G_Node_C {g_node_c_value=v} | v == 0 -> mkNeg r1 nid1
+        _ | G_Node_C {g_node_c_value=v} <- n1, v == 0 -> return nid0
+          | otherwise -> do
+            me <- mkSub (max r0 r1) [nid0,nid1]
+            registerOp dag me (SubArgs nid0 nid1)
     _ -> error "binary_sub_inner"
   where
-    mkU rate ins =
+    mkNeg rate nid =
+      hashconsU (G_Node_U {g_node_u_rate=rate
+                          ,g_node_u_name="UnaryOpUGen"
+                          ,g_node_u_inputs=[nid]
+                          ,g_node_u_outputs=[rate]
+                          ,g_node_u_special=Special (fromEnum Neg)
+                          ,g_node_u_ugenid=NoId})
+    mkSub rate ins =
       hashconsU (G_Node_U {g_node_u_rate=rate
                           ,g_node_u_name="BinaryOpUGen"
                           ,g_node_u_inputs=ins
@@ -804,7 +831,7 @@ mceChannels g =
           MCEU _    -> pure [pure mce_nid])
 {-# INLINABLE mceChannels #-}
 
-mce :: [UGen] -> UGen
+mce :: Foldable t => t UGen -> UGen
 mce gs =
   G (do let f (!len,acc) g = do
               mce_nid <- unG g
@@ -812,6 +839,7 @@ mce gs =
         (len,xs) <- foldlM f (0,[]) gs
         return (MCEV len (reverse xs)))
 {-# INLINABLE mce #-}
+{-# SPECIALIZE mce :: [UGen] -> UGen #-}
 
 mce2 :: UGen -> UGen -> UGen
 mce2 a b = G ((\x y -> MCEV 2 [x,y]) <$> unG a <*> unG b)

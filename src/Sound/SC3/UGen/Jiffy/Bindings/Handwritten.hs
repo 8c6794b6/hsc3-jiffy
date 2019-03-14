@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
 -- | Handwritten UGen bindings.
 module Sound.SC3.UGen.Jiffy.Bindings.Handwritten
   ( -- * Not defined with hsc3-db data
@@ -20,11 +21,14 @@ module Sound.SC3.UGen.Jiffy.Bindings.Handwritten
   , wrapOut
   ) where
 
+-- base
+import Data.Foldable (Foldable(..))
+
 -- hosc
 import Sound.OSC (sendMessage)
 
 -- hsc3
-import Sound.SC3 (Audible(..))
+import Sound.SC3 (Audible(..), Rate(..))
 import Sound.SC3.Server.Command.Generic (withCM)
 import Sound.SC3.Server.Command.Plain (d_recv_bytes, s_new)
 
@@ -53,7 +57,10 @@ instance Audible UGen where
 --
 
 clearBuf :: UGen -> UGen
-clearBuf = error "clearBuf"
+clearBuf a = mkSimpleUGen 1 noId spec0 name r_fn [a]
+  where
+    name = "ClearBuf"
+    r_fn = const_rate IR
 
 -- dwrand :: UGen -> UGen -> UGen -> UGen
 -- dwrand = error "dwrand"
@@ -77,8 +84,12 @@ unpack1FFT = error "unpack1FFT"
 -- Composite UGen functions
 --
 
-asLocalBuf :: [UGen] -> UGen
-asLocalBuf = error "asLocalBuf"
+asLocalBuf :: Foldable t => t UGen -> UGen
+asLocalBuf xs = do
+  b <- localBuf 1 (fromIntegral (length xs))
+  _ <- setBuf (return b) 0 (fromIntegral (length xs)) (mce xs)
+  return b
+{-# SPECIALIZE asLocalBuf :: [UGen] -> UGen #-}
 
 -- | Duplicate given 'UGen' for given number.
 dup :: Int -> UGen -> UGen

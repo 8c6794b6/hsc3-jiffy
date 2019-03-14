@@ -72,7 +72,7 @@ eq_U_Node_K x y
 eq_U_Node_ugens :: U_Graph -> U_Graph -> Bool
 eq_U_Node_ugens g1@(U_Graph _ _ _ us1) g2@(U_Graph _ _ _ us2)
   | null us1 && null us2 = True
-  | otherwise            = eq_U_Node (last us1) (last us2)
+  | otherwise            = all (\u -> any (eq_U_Node u) us2) us1
   where
     eq_U_Node u1 u2
       | U_Node_U {u_node_u_rate=r1
@@ -272,9 +272,22 @@ pv_graph = describe "pv" $ do
            in  S.out 0 (S.ifft' c * 0.1)
   same_graph j0 h0
 
-composite_graph :: Spec
-composite_graph =
-  describe "composite" $ do
+handwritten_graph :: Spec
+handwritten_graph =
+  describe "handwritten" $ do
+
+    describe "asLocalBuf" $ do
+      let j0 = do
+            b <- share (asLocalBuf [-1,-1+(2/255)..1])
+            _ <- clearBuf b
+            let o = osc AR b 110 0
+            out 0 (o*0.1)
+          h0 =
+            let b = S.asLocalBuf 'a' [-1,-1+(2/255)..1]
+                o = S.osc AR (S.clearBuf b) 110 0
+            in  S.out 0 (o*0.1)
+      same_graph j0 h0
+
     describe "wrapOut" $ do
       let j0 = sinOsc AR 440 0
           j1 = wrapOut (wrapOut (wrapOut j0))
@@ -299,4 +312,4 @@ hsc3Tests =
                demand_graph
                envelope_graph
                pv_graph
-               composite_graph)
+               handwritten_graph)
