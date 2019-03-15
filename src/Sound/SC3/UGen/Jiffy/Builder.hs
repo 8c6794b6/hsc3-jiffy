@@ -121,7 +121,7 @@ instance MonadFail G where
 type UGen = G (MCE NodeId)
 
 instance Eq UGen where
-  (==) = (==) `on` (ugen_to_graphdef "(Eq.==)")
+  (==) = (==) `on` ugen_to_graphdef "(Eq.==)"
   {-# INLINE (==) #-}
 
 instance Ord UGen where
@@ -319,7 +319,6 @@ instance BinaryOp UGen where
   {-# INLINE difSqr #-}
   excess = binary_op_with excess Excess
   {-# INLINE excess #-}
-  -- exprandRange = binary_op_with exprandRange ExpRandRange
   exprandRange = binary_op ExpRandRange
   {-# INLINE exprandRange #-}
   fill = binary_op Fill
@@ -582,8 +581,7 @@ unary_op_with fn op a =
                   dag <- ask
                   n0 <- lookup_g_node nid0 dag
                   let rate = g_node_rate n0
-                      opnum = fromEnum op
-                      special = Special opnum
+                      special = Special (fromEnum op)
                   hashconsU (G_Node_U {g_node_u_rate=rate
                                       ,g_node_u_name="UnaryOpUGen"
                                       ,g_node_u_inputs=inputs
@@ -627,7 +625,8 @@ binary_op_with fn op a b =
                   dag <- ask
                   n0 <- lookup_g_node nid0 dag
                   n1 <- lookup_g_node nid1 dag
-                  mkU (max (g_node_rate n0) (g_node_rate n1)) inputs
+                  let rate = max (g_node_rate n0) (g_node_rate n1)
+                  mkU rate inputs
                 _ -> error "binary_op_with: bad inputs"
             mkU rate inputs =
               hashconsU (G_Node_U {g_node_u_rate=rate
@@ -669,15 +668,15 @@ binary_add a b =
 binary_add_inner :: [NodeId] -> GraphM s NodeId
 binary_add_inner inputs =
   case inputs of
-    [NConstant a, NConstant b] -> return (NConstant (a+b))
     [NConstant 0, nid1] -> return nid1
+    [nid0, NConstant 0] -> return nid0
+    [NConstant a, NConstant b] -> return (NConstant (a+b))
     [NConstant a, nid1] -> do
       nid0 <- hashconsC (G_Node_C a)
       dag <- ask
       n1 <- lookup_g_node nid1 dag
       me <- mkAdd (max IR (g_node_rate n1)) [nid0,nid1]
       registerOp dag me (AddArgs nid0 nid1)
-    [nid0, NConstant 0] -> return nid0
     [nid0, NConstant b] -> do
       nid1 <- hashconsC (G_Node_C b)
       dag <- ask
@@ -688,9 +687,8 @@ binary_add_inner inputs =
       dag <- ask
       n0 <- lookup_g_node nid0 dag
       n1 <- lookup_g_node nid1 dag
-      let rate0 = g_node_rate n0
-          rate1 = g_node_rate n1
-      me <- mkAdd (max rate0 rate1) [nid0,nid1]
+      let rate = max (g_node_rate n0) (g_node_rate n1)
+      me <- mkAdd rate inputs
       registerOp dag me (AddArgs nid0 nid1)
     _ -> error "binary_add_inner: bad inputs"
   where
@@ -713,6 +711,7 @@ binary_sub a b =
 binary_sub_inner :: [NodeId] -> GraphM s NodeId
 binary_sub_inner inputs =
   case inputs of
+    [nid0, NConstant 0] -> return nid0
     [NConstant a, NConstant b] -> return (NConstant (a - b))
     [NConstant 0, nid1] -> do
       n1 <- ask >>= lookup_g_node nid1
@@ -723,7 +722,6 @@ binary_sub_inner inputs =
       n1 <- lookup_g_node nid1 dag
       me <- mkSub (max IR (g_node_rate n1)) [nid0,nid1]
       registerOp dag me (SubArgs nid0 nid1)
-    [nid0, NConstant 0] -> return nid0
     [nid0, NConstant b] -> do
       nid1 <- hashconsC (G_Node_C b)
       n0 <- ask >>= lookup_g_node nid0
@@ -734,12 +732,8 @@ binary_sub_inner inputs =
       n1 <- lookup_g_node nid1 dag
       let r0 = g_node_rate n0
           r1 = g_node_rate n1
-      case n0 of
-        G_Node_C {g_node_c_value=v} | v == 0 -> mkNeg r1 nid1
-        _ | G_Node_C {g_node_c_value=v} <- n1, v == 0 -> return nid0
-          | otherwise -> do
-            me <- mkSub (max r0 r1) [nid0,nid1]
-            registerOp dag me (SubArgs nid0 nid1)
+      me <- mkSub (max r0 r1) inputs
+      registerOp dag me (SubArgs nid0 nid1)
     _ -> error "binary_sub_inner"
   where
     mkNeg rate nid =
