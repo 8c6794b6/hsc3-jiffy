@@ -1,6 +1,12 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RecordWildCards #-}
 -- | Internal of UGen builder.
+--
+-- The implementation is heavily inspired from the presentation given by
+-- Oleg Kiselyov, found in:
+--
+--    <http://okmij.org/ftp/tagless-final/sharing/index.html>
+--
 module Sound.SC3.UGen.Jiffy.Builder.GraphM
   (
     -- * Internal of synthdef builder

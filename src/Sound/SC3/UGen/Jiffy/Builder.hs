@@ -11,12 +11,6 @@
 -- package.  The construction computation supports implicit and explicit
 -- sharing in the UGen graph construction DSL.
 --
--- The implementation is heavily inspired from the presentation given by
--- Oleg Kiselyov, found in:
---
---    <http://okmij.org/ftp/tagless-final/sharing/index.html>
---
-
 module Sound.SC3.UGen.Jiffy.Builder
   ( UGen
   , runUGen
@@ -174,11 +168,11 @@ instance Enum UGen where
 instance Num UGen where
   fromInteger = constant . fromInteger
   {-# INLINE fromInteger #-}
-  (+) = binary_add
+  a + b = G (mkbinop binary_add a b)
   {-# INLINE (+) #-}
-  (*) = binary_op_with (*) Mul
+  a * b = G (mkbinop binary_mul a b)
   {-# INLINE (*) #-}
-  (-) = binary_sub
+  a - b = G (mkbinop binary_sub a b)
   {-# INLINE (-) #-}
   abs = unary_op_with abs Abs
   {-# INLINE abs #-}
@@ -196,7 +190,7 @@ instance Real UGen where
 instance Fractional UGen where
   recip = unary_op_with recip Recip
   {-# INLINE recip #-}
-  (/) = binary_op_with (/) FDiv
+  a / b = G (mkbinop binary_fdiv a b)
   {-# INLINE (/) #-}
   fromRational = constant . fromRational
   {-# INLINE fromRational #-}
@@ -601,44 +595,50 @@ unary_op op a = mkSimpleUGen 1 noId special name r_fn [a]
     r_fn = get_rate_at 0
 {-# INLINE unary_op #-}
 
--- | Make a binary operator UGen, with constant folding function applied
--- to 'NConstant' input values.
+-- | Make a binary operator UGen, with applying given function when both
+-- arguments were 'NConstant'.
 binary_op_with :: (Sample -> Sample -> Sample)
                -> Binary
                -> UGen -> UGen -> UGen
-binary_op_with fn op a b =
-  G (do let f inputs =
-              case inputs of
-                [NConstant v0, NConstant v1] ->
-                  return $ NConstant (fn v0 v1)
-                [NConstant v0, nid1] -> do
-                  dag <- ask
-                  nid0 <- hashconsC (G_Node_C v0)
-                  n1 <- lookup_g_node nid1 dag
-                  mkU (max IR (g_node_rate n1)) [nid0,nid1]
-                [nid0, NConstant v1] -> do
-                  dag <- ask
-                  n0 <- lookup_g_node nid0 dag
-                  nid1 <- hashconsC (G_Node_C v1)
-                  mkU (max (g_node_rate n0) IR) [nid0,nid1]
-                [nid0, nid1] -> do
-                  dag <- ask
-                  n0 <- lookup_g_node nid0 dag
-                  n1 <- lookup_g_node nid1 dag
-                  let rate = max (g_node_rate n0) (g_node_rate n1)
-                  mkU rate inputs
-                _ -> error "binary_op_with: bad inputs"
-            mkU rate inputs =
-              hashconsU (G_Node_U {g_node_u_rate=rate
-                                  ,g_node_u_name="BinaryOpUGen"
-                                  ,g_node_u_inputs=inputs
-                                  ,g_node_u_outputs=[rate]
-                                  ,g_node_u_special=Special (fromEnum op)
-                                  ,g_node_u_ugenid=NoId})
-        a' <- unG a
-        b' <- unG b
-        normalize 1 f [a',b'])
+binary_op_with fn op a b = G (mkbinop f a b)
+  where
+    f inputs =
+      case inputs of
+        [NConstant v0, NConstant v1] ->
+          return $ NConstant (fn v0 v1)
+        [NConstant v0, nid1] -> do
+          dag <- ask
+          nid0 <- hashconsC (G_Node_C v0)
+          n1 <- lookup_g_node nid1 dag
+          mkU (max IR (g_node_rate n1)) [nid0,nid1]
+        [nid0, NConstant v1] -> do
+          dag <- ask
+          n0 <- lookup_g_node nid0 dag
+          nid1 <- hashconsC (G_Node_C v1)
+          mkU (max (g_node_rate n0) IR) [nid0,nid1]
+        [nid0, nid1] -> do
+          dag <- ask
+          n0 <- lookup_g_node nid0 dag
+          n1 <- lookup_g_node nid1 dag
+          let rate = max (g_node_rate n0) (g_node_rate n1)
+          mkU rate inputs
+        _ -> error "binary_op_with: bad inputs"
+    mkU rate inputs =
+      hashconsU (G_Node_U {g_node_u_rate=rate
+                          ,g_node_u_name="BinaryOpUGen"
+                          ,g_node_u_inputs=inputs
+                          ,g_node_u_outputs=[rate]
+                          ,g_node_u_special=Special (fromEnum op)
+                          ,g_node_u_ugenid=NoId})
 {-# INLINE binary_op_with #-}
+
+mkbinop :: ([NodeId] -> GraphM s NodeId)
+        -> UGen -> UGen -> GraphM s (MCE NodeId)
+mkbinop f (G a) (G b) =
+  do a' <- a
+     b' <- b
+     normalize 1 f [a',b']
+{-# INLINE mkbinop #-}
 
 binary_op :: Binary -> UGen -> UGen -> UGen
 binary_op op a b = mkSimpleUGen 1 noId special name r_fn [a,b]
@@ -658,15 +658,8 @@ binary_op op a b = mkSimpleUGen 1 noId special name r_fn [a,b]
 -- Graphdef and U_Graph performs dead code elimination to remove unused
 -- nodes from DAG.
 
-binary_add :: UGen -> UGen -> UGen
-binary_add a b =
-  G (do a' <- unG a
-        b' <- unG b
-        normalize 1 binary_add_inner [a',b'])
-{-# INLINE binary_add #-}
-
-binary_add_inner :: [NodeId] -> GraphM s NodeId
-binary_add_inner inputs =
+binary_add :: [NodeId] -> GraphM s NodeId
+binary_add inputs =
   case inputs of
     [NConstant 0, nid1] -> return nid1
     [nid0, NConstant 0] -> return nid0
@@ -691,25 +684,10 @@ binary_add_inner inputs =
       me <- mkAdd rate inputs
       registerOp dag me (AddArgs nid0 nid1)
     _ -> error "binary_add_inner: bad inputs"
-  where
-    mkAdd rate ins =
-      hashconsU (G_Node_U {g_node_u_rate=rate
-                          ,g_node_u_name="BinaryOpUGen"
-                          ,g_node_u_inputs=ins
-                          ,g_node_u_outputs=[rate]
-                          ,g_node_u_special=Special (fromEnum Add)
-                          ,g_node_u_ugenid=NoId})
-{-# INLINE binary_add_inner #-}
+{-# INLINE binary_add #-}
 
-binary_sub :: UGen -> UGen -> UGen
-binary_sub a b =
-  G (do a' <- unG a
-        b' <- unG b
-        normalize 1 binary_sub_inner [a',b'])
-{-# INLINE binary_sub #-}
-
-binary_sub_inner :: [NodeId] -> GraphM s NodeId
-binary_sub_inner inputs =
+binary_sub :: [NodeId] -> GraphM s NodeId
+binary_sub inputs =
   case inputs of
     [nid0, NConstant 0] -> return nid0
     [NConstant a, NConstant b] -> return (NConstant (a - b))
@@ -735,22 +713,106 @@ binary_sub_inner inputs =
       me <- mkSub (max r0 r1) inputs
       registerOp dag me (SubArgs nid0 nid1)
     _ -> error "binary_sub_inner"
-  where
-    mkNeg rate nid =
-      hashconsU (G_Node_U {g_node_u_rate=rate
-                          ,g_node_u_name="UnaryOpUGen"
-                          ,g_node_u_inputs=[nid]
-                          ,g_node_u_outputs=[rate]
-                          ,g_node_u_special=Special (fromEnum Neg)
-                          ,g_node_u_ugenid=NoId})
-    mkSub rate ins =
-      hashconsU (G_Node_U {g_node_u_rate=rate
-                          ,g_node_u_name="BinaryOpUGen"
-                          ,g_node_u_inputs=ins
-                          ,g_node_u_outputs=[rate]
-                          ,g_node_u_special=Special (fromEnum Sub)
-                          ,g_node_u_ugenid=NoId})
-{-# INLINE binary_sub_inner #-}
+{-# INLINE binary_sub #-}
+
+binary_mul :: [NodeId] -> GraphM s NodeId
+binary_mul inputs =
+  case inputs of
+    [NConstant 0,    _] -> return (NConstant 0)
+    [NConstant 1, nid1] -> return nid1
+    [_,    NConstant 0] -> return (NConstant 0)
+    [nid0, NConstant 1] -> return nid0
+    [NConstant a, NConstant b] -> return (NConstant (a*b))
+    [NConstant (-1), nid1] -> do
+      n1 <- ask >>= lookup_g_node nid1
+      let rate = max IR (g_node_rate n1)
+      mkNeg rate nid1
+    [NConstant a, nid1] -> do
+      nid0 <- hashconsC (G_Node_C a)
+      n1 <- ask >>= lookup_g_node nid1
+      let rate = max IR (g_node_rate n1)
+      mkMul rate [nid0,nid1]
+    [nid0, NConstant (-1)] -> do
+      n1 <- ask >>= lookup_g_node nid0
+      let rate = max (g_node_rate n1) IR
+      mkNeg rate nid0
+    [nid0, NConstant b] -> do
+      nid1 <- hashconsC (G_Node_C b)
+      n0 <- ask >>= lookup_g_node nid0
+      let rate = max (g_node_rate n0) IR
+      mkMul rate [nid0,nid1]
+    [nid0,nid1] -> do
+      dag <- ask
+      n0 <- lookup_g_node nid0 dag
+      n1 <- lookup_g_node nid1 dag
+      let rate = max (g_node_rate n0) (g_node_rate n1)
+      mkMul rate inputs
+    _ -> error "binary_mul_inner: bad inputs"
+{-# INLINE binary_mul #-}
+
+binary_fdiv :: [NodeId] -> GraphM s NodeId
+binary_fdiv inputs =
+  case inputs of
+    [nid0, NConstant 1] -> return nid0
+    [NConstant a, NConstant b] -> return (NConstant (a/b))
+    [nid0, NConstant (-1)] -> do
+      n0 <- ask >>= lookup_g_node nid0
+      let rate = max (g_node_rate n0) IR
+      mkNeg rate nid0
+    [NConstant a, nid1] -> do
+      nid0 <- hashconsC (G_Node_C a)
+      n1 <- ask >>= lookup_g_node nid1
+      let rate = max IR (g_node_rate n1)
+      mkFDiv rate [nid0,nid1]
+    [nid0, NConstant b] -> do
+      nid1 <- hashconsC (G_Node_C b)
+      n0 <- ask >>= lookup_g_node nid0
+      let rate = max (g_node_rate n0) IR
+      mkFDiv rate [nid0,nid1]
+    [nid0,nid1] -> do
+      dag <- ask
+      n0 <- lookup_g_node nid0 dag
+      n1 <- lookup_g_node nid1 dag
+      let rate = max (g_node_rate n0) (g_node_rate n1)
+      mkFDiv rate inputs
+    _ -> error "binary_div_inner: bad inputs"
+{-# INLINE binary_fdiv #-}
+
+mkNeg :: Rate -> NodeId -> GraphM s NodeId
+mkNeg rate nid =
+  hashconsU (G_Node_U {g_node_u_rate=rate
+                      ,g_node_u_name="UnaryOpUGen"
+                      ,g_node_u_inputs=[nid]
+                      ,g_node_u_outputs=[rate]
+                      ,g_node_u_special=Special (fromEnum Neg)
+                      ,g_node_u_ugenid=NoId})
+{-# INLINE mkNeg #-}
+
+mkAdd :: Rate -> [NodeId] -> GraphM s NodeId
+mkAdd = mkBinaryOp Add
+{-# INLINE mkAdd #-}
+
+mkSub :: Rate -> [NodeId] -> GraphM s NodeId
+mkSub = mkBinaryOp Sub
+{-# INLINE mkSub #-}
+
+mkMul :: Rate -> [NodeId] -> GraphM s NodeId
+mkMul = mkBinaryOp Mul
+{-# INLINE mkMul #-}
+
+mkFDiv :: Rate -> [NodeId] -> GraphM s NodeId
+mkFDiv = mkBinaryOp FDiv
+{-# INLINE mkFDiv #-}
+
+mkBinaryOp :: Binary -> Rate -> [NodeId] -> GraphM s NodeId
+mkBinaryOp op rate ins =
+  hashconsU (G_Node_U {g_node_u_rate=rate
+                      ,g_node_u_name="BinaryOpUGen"
+                      ,g_node_u_inputs=ins
+                      ,g_node_u_outputs=[rate]
+                      ,g_node_u_special=Special (fromEnum op)
+                      ,g_node_u_ugenid=NoId})
+{-# INLINE mkBinaryOp #-}
 
 noId :: DAG s -> ST s UGenId
 noId _ = return NoId
