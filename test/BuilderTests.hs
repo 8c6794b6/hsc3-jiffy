@@ -244,6 +244,32 @@ ugen_instance_tests =
     describe "Show" $ do
       it "shows <UGen>" $ show (undefined :: UGen) `shouldBe` "<UGen>"
 
+optimize_simple_constant_tests :: Spec
+optimize_simple_constant_tests =
+  describe "optimize_simple_constants" $ do
+    let u2g = ugen_to_graphdef "test"
+    describe "add" $ do
+      let g0 = out 0 (sinOsc AR 440 0)
+          g1 = out 0 (0 + sinOsc AR 440 0 + 0)
+      it "is_equal" (u2g g0 `shouldBe` u2g g1)
+    describe "sub" $ do
+      let g0 = out 0 (negate (sinOsc AR 440 0))
+          g1 = out 0 (0 - sinOsc AR 440 0 - 0)
+      it "is_equal" (u2g g0 `shouldBe` u2g g1)
+    describe "mul" $ do
+      let g0 = out 0 (negate (sinOsc AR 440 0))
+          g1 = out 0 (1 * sinOsc AR 440 0 * (-1))
+      it "is_equal" (u2g g0 `shouldBe` u2g g1)
+      let g2 = out 0 (negate (sinOsc AR 440 0))
+          g3 = out 0 ((-1) * sinOsc AR 440 0 * 1)
+      it "is_equal" (u2g g2 `shouldBe` u2g g3)
+      let g5 = out 0 (negate (sinOsc AR 440 0) + (whiteNoise AR * 0))
+      it "is_equal" (u2g g2 `shouldBe` u2g g5)
+    describe "div" $ do
+      let g0 = out 0 (negate (sinOsc AR 440 0))
+          g1 = out 0 ((sinOsc AR 440 0 / (-1)) / 1)
+      it "is_equal" (u2g g0 `shouldBe` u2g g1)
+
 optimize_add_tests :: Spec
 optimize_add_tests =
   describe "optimize_add" $ do
@@ -333,6 +359,7 @@ builderTests :: Spec
 builderTests =
   describe "builder"
            (do ugen_instance_tests
+               optimize_simple_constant_tests
                optimize_add_tests
                optimize_sub_tests
                auxiliary_tests)
