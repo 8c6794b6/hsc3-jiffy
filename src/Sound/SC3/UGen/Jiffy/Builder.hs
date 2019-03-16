@@ -68,10 +68,6 @@ import Sound.SC3
 import Sound.SC3.Server.Graphdef (Graphdef(..))
 import Sound.SC3.UGen.Graph (U_Graph)
 
--- transformers
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Reader (ReaderT(..), ask)
-
 -- Internal
 import Sound.SC3.Jiffy.Orphan ()
 import Sound.SC3.UGen.Jiffy.Builder.Convert
@@ -371,13 +367,13 @@ ugen_to_graph = runUGenWith dag_to_U_Graph
 {-# INLINABLE ugen_to_graph #-}
 
 runUGen :: G a -> a
-runUGen (G g) = runST (emptyDAG >>= runReaderT g)
+runUGen (G g) = runST (emptyDAG >>= runGraphM g)
 {-# INLINE runUGen #-}
 
 runUGenWith :: (forall s. DAG s -> ST s a) -> UGen -> a
 runUGenWith f (G g) =
   runST (do dag <- emptyDAG
-            _ <- runReaderT g dag
+            _ <- runGraphM g dag
             f dag)
 {-# INLINE runUGenWith #-}
 
@@ -491,7 +487,7 @@ normalize n_outputs f = go
 
 -- | Inner function used in UGen constructor functions.
 mkUGenFn :: forall s. Int
-         -> (DAG s -> ST s UGenId)
+         -> (DAG s -> GraphM s UGenId)
          -> Special
          -> Name
          -> ([NodeId] -> DAG s -> GraphM s Rate)
@@ -500,7 +496,7 @@ mkUGenFn :: forall s. Int
 mkUGenFn !n_output uid_fn special name rate_fn inputs = do
   dag <- ask
   rate <- rate_fn inputs dag
-  uid <- lift (uid_fn dag)
+  uid <- uid_fn dag
   let outputs = replicate n_output rate
   hashconsU (G_Node_U {g_node_u_rate=rate
                       ,g_node_u_name=name
@@ -514,7 +510,7 @@ mkUGenFn !n_output uid_fn special name rate_fn inputs = do
 type MkUGen
   = Int
   -- ^ Number of outputs.
-  -> (forall s. DAG s -> ST s UGenId)
+  -> (forall s. DAG s -> GraphM s UGenId)
   -- ^ Function to get 'UGenId'.
   -> Special
   -- ^ UGen special.
@@ -814,12 +810,12 @@ mkBinaryOp op rate ins =
                       ,g_node_u_ugenid=NoId})
 {-# INLINE mkBinaryOp #-}
 
-noId :: DAG s -> ST s UGenId
+noId :: DAG s -> GraphM s UGenId
 noId _ = return NoId
 {-# INLINE noId #-}
 
-hashUId :: DAG s -> ST s UGenId
-hashUId = fmap UId . sizeBM . umap
+hashUId :: DAG s -> GraphM s UGenId
+hashUId = liftST . fmap UId . sizeBM . umap
 {-# INLINE hashUId #-}
 
 spec0 :: Special

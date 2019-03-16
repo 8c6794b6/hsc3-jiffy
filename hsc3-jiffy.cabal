@@ -38,7 +38,6 @@ library
                      , hsc3
                      , hsc3-db
                      , template-haskell
-                     , transformers
   default-language:    Haskell2010
   ghc-options:       -Wall
 

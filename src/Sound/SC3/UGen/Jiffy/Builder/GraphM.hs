@@ -11,6 +11,9 @@ module Sound.SC3.UGen.Jiffy.Builder.GraphM
   (
     -- * Internal of synthdef builder
     GraphM
+  , runGraphM
+  , ask
+  , liftST
 
     -- * DAG
   , DAG(..)
@@ -72,10 +75,6 @@ import Sound.SC3
   ( Output, K_Type(..), Rate(..), Sample, Special(..), UGenId )
 import Sound.SC3.Server.Graphdef (Name)
 
--- transformers
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Reader (ReaderT(..), ask)
-
 -- Internal
 import Sound.SC3.Jiffy.Orphan ()
 
@@ -83,9 +82,35 @@ import Sound.SC3.Jiffy.Orphan ()
 -- DAG and its builder
 --
 
--- | Type synonym for synthdef builder internal, 'ReaderT' transformer
--- with 'DAG' state.
-type GraphM s a = ReaderT (DAG s) (ST s) a
+-- | Nwetype wrapper for synthdef builder internal. Simplified reader
+-- transformer with 'DAG' state wrapping 'ST' monad.
+newtype GraphM s a = GraphM {runGraphM :: DAG s -> ST s a}
+
+instance Functor (GraphM s) where
+  fmap f (GraphM m) = GraphM (\dag -> fmap f (m dag))
+  {-# INLINE fmap #-}
+
+instance Applicative (GraphM s) where
+  pure x = GraphM (\_ -> pure x)
+  {-# INLINE pure #-}
+  GraphM f <*> GraphM x = GraphM (\dag -> f dag <*> x dag)
+  {-# INLINE (<*>) #-}
+
+instance Monad (GraphM s) where
+  return = pure
+  {-# INLINE return #-}
+  GraphM m >>= k = GraphM (\dag -> m dag >>= \a -> runGraphM (k a) dag)
+  {-# INLINE (>>=) #-}
+
+-- | Get the 'DAG'.
+ask :: GraphM s (DAG s)
+ask = GraphM pure
+{-# INLINE ask #-}
+
+-- | Lift 'ST' action to 'GraphM'.
+liftST :: ST s a -> GraphM s a
+liftST m = GraphM (\_ -> m)
+{-# INLINE liftST #-}
 
 -- | Data type of directed acyclic graph to construct synthdef.  The
 -- 'BiMap's are separated between constants, control nodes, and ugen
@@ -350,7 +375,7 @@ nid_value nid =
 {-# INLINE nid_value #-}
 
 lookup_g_node :: NodeId -> DAG s -> GraphM s G_Node
-lookup_g_node nid dag = lift (lookup_g_node' nid dag)
+lookup_g_node nid dag = liftST (lookup_g_node' nid dag)
 {-# INLINE lookup_g_node #-}
 
 lookup_g_node' :: NodeId -> DAG s -> ST s G_Node
@@ -377,12 +402,12 @@ g_node_rate n =
 
 incrementNumLocalBufs :: DAG s -> GraphM s ()
 incrementNumLocalBufs dag =
-  lift (modifySTRef' (numLocalBufs dag) (+1))
+  liftST (modifySTRef' (numLocalBufs dag) (+1))
 {-# INLINE incrementNumLocalBufs #-}
 
 registerOp :: DAG s -> NodeId -> OpArg -> GraphM s NodeId
 registerOp (DAG _ opmap _ _ _) me oparg = do
-  lift (insertOpArg opmap (nid_value me) oparg)
+  liftST (insertOpArg opmap (nid_value me) oparg)
   return me
 {-# INLINE registerOp #-}
 
@@ -396,9 +421,9 @@ hashcons :: (Int -> NodeId)
          -> GraphM s NodeId
 hashcons con prj !x = do
   bimap <- prj <$> ask
-  v <- lift (lookup_key x bimap)
+  v <- liftST (lookup_key x bimap)
   case v of
-    Nothing -> lift (con <$> insert x bimap)
+    Nothing -> liftST (con <$> insert x bimap)
     Just k  -> return (con k)
 {-# INLINE hashcons #-}
 
