@@ -5,11 +5,9 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 -- -----------------------------------------------------------------------
--- |
--- Implicit and explicit sharing with hsc3 synthdef.  This module
--- contains functions to construct SuperCollider synthdef with hsc3
--- package.  The construction computation supports implicit and explicit
--- sharing in the UGen graph construction DSL.
+-- | Module containing functions to construct SuperCollider synthdef
+-- with hsc3.  The construction computation supports implicit and
+-- explicit sharing in the UGen graph construction DSL.
 --
 module Sound.SC3.UGen.Jiffy.Builder
   ( UGen
@@ -358,14 +356,6 @@ instance BinaryOp UGen where
 -- Converting to U_Graph and Graphdef
 --
 
-ugen_to_graphdef :: String -> UGen -> Graphdef
-ugen_to_graphdef name = runUGenWith (dag_to_Graphdef name)
-{-# INLINABLE ugen_to_graphdef #-}
-
-ugen_to_graph :: UGen -> U_Graph
-ugen_to_graph = runUGenWith dag_to_U_Graph
-{-# INLINABLE ugen_to_graph #-}
-
 runUGen :: G a -> a
 runUGen (G g) = runST (emptyDAG >>= runGraphM g)
 {-# INLINE runUGen #-}
@@ -376,6 +366,18 @@ runUGenWith f (G g) =
             _ <- runGraphM g dag
             f dag)
 {-# INLINE runUGenWith #-}
+
+share :: UGen -> G UGen
+share g = G (fmap pure (unG g))
+{-# INLINE share #-}
+
+ugen_to_graphdef :: String -> UGen -> Graphdef
+ugen_to_graphdef name = runUGenWith (dag_to_Graphdef name)
+{-# INLINABLE ugen_to_graphdef #-}
+
+ugen_to_graph :: UGen -> U_Graph
+ugen_to_graph = runUGenWith dag_to_U_Graph
+{-# INLINABLE ugen_to_graph #-}
 
 --
 -- Constant, control, and UGen constructors
@@ -657,122 +659,118 @@ binary_op op a b = mkSimpleUGen 1 noId special name r_fn [a,b]
 binary_add :: [NodeId] -> GraphM s NodeId
 binary_add inputs =
   case inputs of
-    [NConstant 0, nid1] -> return nid1
-    [nid0, NConstant 0] -> return nid0
+    [NConstant 0,        nid1] -> return nid1
+    [nid0,        NConstant 0] -> return nid0
     [NConstant a, NConstant b] -> return (NConstant (a+b))
-    [NConstant a, nid1] -> do
-      nid0 <- hashconsC (G_Node_C a)
-      dag <- ask
-      n1 <- lookup_g_node nid1 dag
-      me <- mkAdd (max IR (g_node_rate n1)) [nid0,nid1]
-      registerOp dag me (AddArgs nid0 nid1)
-    [nid0, NConstant b] -> do
-      nid1 <- hashconsC (G_Node_C b)
-      dag <- ask
-      n0 <- lookup_g_node nid0 dag
-      me <- mkAdd (max IR (g_node_rate n0)) [nid0,nid1]
-      registerOp dag me (AddArgs nid0 nid1)
-    [nid0, nid1] -> do
-      dag <- ask
-      n0 <- lookup_g_node nid0 dag
-      n1 <- lookup_g_node nid1 dag
-      let rate = max (g_node_rate n0) (g_node_rate n1)
-      me <- mkAdd rate inputs
-      registerOp dag me (AddArgs nid0 nid1)
+    [NConstant a,        nid1] -> registerCN Add AddArgs a nid1
+    [nid0,        NConstant b] -> registerNC Add AddArgs nid0 b
+    [nid0,               nid1] -> registerNN Add AddArgs nid0 nid1
     _ -> error "binary_add_inner: bad inputs"
 {-# INLINE binary_add #-}
 
 binary_sub :: [NodeId] -> GraphM s NodeId
 binary_sub inputs =
   case inputs of
-    [nid0, NConstant 0] -> return nid0
+    [nid0,        NConstant 0] -> return nid0
     [NConstant a, NConstant b] -> return (NConstant (a - b))
-    [NConstant 0, nid1] -> do
-      n1 <- ask >>= lookup_g_node nid1
-      mkNeg (g_node_rate n1) nid1
-    [NConstant a, nid1] -> do
-      nid0 <- hashconsC (G_Node_C a)
-      dag <- ask
-      n1 <- lookup_g_node nid1 dag
-      me <- mkSub (max IR (g_node_rate n1)) [nid0,nid1]
-      registerOp dag me (SubArgs nid0 nid1)
-    [nid0, NConstant b] -> do
-      nid1 <- hashconsC (G_Node_C b)
-      n0 <- ask >>= lookup_g_node nid0
-      mkSub (max IR (g_node_rate n0)) [nid0,nid1]
-    [nid0,nid1] -> do
-      dag <- ask
-      n0 <- lookup_g_node nid0 dag
-      n1 <- lookup_g_node nid1 dag
-      let r0 = g_node_rate n0
-          r1 = g_node_rate n1
-      me <- mkSub (max r0 r1) inputs
-      registerOp dag me (SubArgs nid0 nid1)
+    [NConstant 0,        nid1] -> negN nid1
+    [NConstant a,        nid1] -> registerCN Sub SubArgs a nid1
+    [nid0,        NConstant b] -> registerNC Sub SubArgs nid0 b
+    [nid0,               nid1] -> registerNN Sub SubArgs nid0 nid1
     _ -> error "binary_sub_inner"
 {-# INLINE binary_sub #-}
 
 binary_mul :: [NodeId] -> GraphM s NodeId
 binary_mul inputs =
   case inputs of
-    [NConstant 0,    _] -> return (NConstant 0)
-    [NConstant 1, nid1] -> return nid1
-    [_,    NConstant 0] -> return (NConstant 0)
-    [nid0, NConstant 1] -> return nid0
-    [NConstant a, NConstant b] -> return (NConstant (a*b))
-    [NConstant (-1), nid1] -> do
-      n1 <- ask >>= lookup_g_node nid1
-      let rate = max IR (g_node_rate n1)
-      mkNeg rate nid1
-    [NConstant a, nid1] -> do
-      nid0 <- hashconsC (G_Node_C a)
-      n1 <- ask >>= lookup_g_node nid1
-      let rate = max IR (g_node_rate n1)
-      mkMul rate [nid0,nid1]
-    [nid0, NConstant (-1)] -> do
-      n1 <- ask >>= lookup_g_node nid0
-      let rate = max (g_node_rate n1) IR
-      mkNeg rate nid0
-    [nid0, NConstant b] -> do
-      nid1 <- hashconsC (G_Node_C b)
-      n0 <- ask >>= lookup_g_node nid0
-      let rate = max (g_node_rate n0) IR
-      mkMul rate [nid0,nid1]
-    [nid0,nid1] -> do
-      dag <- ask
-      n0 <- lookup_g_node nid0 dag
-      n1 <- lookup_g_node nid1 dag
-      let rate = max (g_node_rate n0) (g_node_rate n1)
-      mkMul rate inputs
-    _ -> error "binary_mul_inner: bad inputs"
+    [NConstant 0,              _] -> return (NConstant 0)
+    [NConstant 1,           nid1] -> return nid1
+    [_,              NConstant 0] -> return (NConstant 0)
+    [nid0,           NConstant 1] -> return nid0
+    [NConstant a,    NConstant b] -> return (NConstant (a*b))
+    [NConstant (-1),        nid1] -> negN nid1
+    [NConstant a,           nid1] -> binaryCN Mul a nid1
+    [nid0,        NConstant (-1)] -> negN nid0
+    [nid0,           NConstant b] -> binaryNC Mul nid0 b
+    [nid0,                  nid1] -> binaryNN Mul nid0 nid1
+    _ -> error "binary_mul: bad inputs"
 {-# INLINE binary_mul #-}
 
 binary_fdiv :: [NodeId] -> GraphM s NodeId
 binary_fdiv inputs =
   case inputs of
-    [nid0, NConstant 1] -> return nid0
+    [nid0,        NConstant 1] -> return nid0
     [NConstant a, NConstant b] -> return (NConstant (a/b))
-    [nid0, NConstant (-1)] -> do
-      n0 <- ask >>= lookup_g_node nid0
-      let rate = max (g_node_rate n0) IR
-      mkNeg rate nid0
-    [NConstant a, nid1] -> do
-      nid0 <- hashconsC (G_Node_C a)
-      n1 <- ask >>= lookup_g_node nid1
-      let rate = max IR (g_node_rate n1)
-      mkFDiv rate [nid0,nid1]
-    [nid0, NConstant b] -> do
-      nid1 <- hashconsC (G_Node_C b)
-      n0 <- ask >>= lookup_g_node nid0
-      let rate = max (g_node_rate n0) IR
-      mkFDiv rate [nid0,nid1]
-    [nid0,nid1] -> do
-      dag <- ask
-      n0 <- lookup_g_node nid0 dag
-      n1 <- lookup_g_node nid1 dag
-      let rate = max (g_node_rate n0) (g_node_rate n1)
-      mkFDiv rate inputs
-    _ -> error "binary_div_inner: bad inputs"
+    [nid0,     NConstant (-1)] -> negN nid0
+    [NConstant a,        nid1] -> binaryCN FDiv a nid1
+    [nid0,        NConstant b] -> binaryNC FDiv nid0 b
+    [nid0,               nid1] -> binaryNN FDiv nid0 nid1
+    _ -> error "binary_fdiv: bad inputs"
 {-# INLINE binary_fdiv #-}
+
+registerCN :: Binary -> (NodeId -> NodeId -> OpArg)
+           -> Sample -> NodeId -> GraphM s NodeId
+registerCN op oparg v0 nid1 = do
+  nid0 <- hashconsC (G_Node_C v0)
+  dag <- ask
+  n1 <- lookup_g_node nid1 dag
+  me <- mkBinaryOp op (g_node_rate n1) [nid0,nid1]
+  registerOp dag me (oparg nid0 nid1)
+{-# INLINE registerCN #-}
+
+registerNC :: Binary -> (NodeId -> NodeId -> OpArg)
+           -> NodeId -> Sample -> GraphM s NodeId
+registerNC op oparg nid0 v1 = do
+  nid1 <- hashconsC (G_Node_C v1)
+  dag <- ask
+  n0 <- lookup_g_node nid0 dag
+  me <- mkBinaryOp op (g_node_rate n0) [nid0,nid1]
+  registerOp dag me (oparg nid0 nid1)
+{-# INLINE registerNC #-}
+
+registerNN :: Binary -> (NodeId -> NodeId -> OpArg)
+           -> NodeId -> NodeId -> GraphM s NodeId
+registerNN op oparg nid0 nid1 = do
+  dag <- ask
+  n0 <- lookup_g_node nid0 dag
+  n1 <- lookup_g_node nid1 dag
+  let r0 = g_node_rate n0
+      r1 = g_node_rate n1
+  me <- mkBinaryOp op (max r0 r1) [nid0,nid1]
+  registerOp dag me (oparg nid0 nid1)
+{-# INLINE registerNN #-}
+
+-- | Binary op, constant first argument, node ID second argument.
+binaryCN :: Binary -> Sample -> NodeId -> GraphM s NodeId
+binaryCN op v0 nid1 = do
+  nid0 <- hashconsC (G_Node_C v0)
+  n1 <- ask >>= lookup_g_node nid1
+  mkBinaryOp op (g_node_rate n1) [nid0,nid1]
+{-# INLINE binaryCN #-}
+
+-- | Binary op, node ID first argument, constant second argument.
+binaryNC :: Binary -> NodeId -> Sample -> GraphM s NodeId
+binaryNC op nid0 v1 = do
+  n0 <- ask >>= lookup_g_node nid0
+  nid1 <- hashconsC (G_Node_C v1)
+  mkBinaryOp op (g_node_rate n0) [nid0,nid1]
+{-# INLINE binaryNC #-}
+
+-- | Binary op, node ID first and second argument.
+binaryNN :: Binary -> NodeId -> NodeId -> GraphM s NodeId
+binaryNN op nid0 nid1 = do
+  dag <- ask
+  n0 <- lookup_g_node nid0 dag
+  n1 <- lookup_g_node nid1 dag
+  let rate = max (g_node_rate n0) (g_node_rate n1)
+  mkBinaryOp op rate [nid0, nid1]
+{-# INLINE binaryNN #-}
+
+negN :: NodeId -> GraphM s NodeId
+negN nid = do
+  n <- ask >>= lookup_g_node nid
+  mkNeg (g_node_rate n) nid
+{-# INLINE negN #-}
 
 mkNeg :: Rate -> NodeId -> GraphM s NodeId
 mkNeg rate nid =
@@ -783,22 +781,6 @@ mkNeg rate nid =
                       ,g_node_u_special=Special (fromEnum Neg)
                       ,g_node_u_ugenid=NoId})
 {-# INLINE mkNeg #-}
-
-mkAdd :: Rate -> [NodeId] -> GraphM s NodeId
-mkAdd = mkBinaryOp Add
-{-# INLINE mkAdd #-}
-
-mkSub :: Rate -> [NodeId] -> GraphM s NodeId
-mkSub = mkBinaryOp Sub
-{-# INLINE mkSub #-}
-
-mkMul :: Rate -> [NodeId] -> GraphM s NodeId
-mkMul = mkBinaryOp Mul
-{-# INLINE mkMul #-}
-
-mkFDiv :: Rate -> [NodeId] -> GraphM s NodeId
-mkFDiv = mkBinaryOp FDiv
-{-# INLINE mkFDiv #-}
 
 mkBinaryOp :: Binary -> Rate -> [NodeId] -> GraphM s NodeId
 mkBinaryOp op rate ins =
@@ -861,10 +843,6 @@ undemand xs =
 --
 -- Auxiliary UGen related functions
 --
-
-share :: UGen -> G UGen
-share g = G (fmap pure (unG g))
-{-# INLINE share #-}
 
 mceChannel :: Int -> UGen -> UGen
 mceChannel n g =
