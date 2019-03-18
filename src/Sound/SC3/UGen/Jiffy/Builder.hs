@@ -26,6 +26,7 @@ module Sound.SC3.UGen.Jiffy.Builder
 
   , MkUGen
   , mkSimpleUGen
+  , mkImpureUGen
   , mkChannelsArrayUGen
   , mkDemandUGen
   , mkLocalBufUGen
@@ -493,9 +494,10 @@ mkUGenFn :: forall s. Int
          -> Special
          -> Name
          -> ([NodeId] -> DAG s -> GraphM s Rate)
+         -> Bool
          -> [NodeId]
          -> GraphM s NodeId
-mkUGenFn !n_output uid_fn special name rate_fn inputs = do
+mkUGenFn !n_output uid_fn special name rate_fn is_pure inputs = do
   dag <- ask
   rate <- rate_fn inputs dag
   uid <- uid_fn dag
@@ -505,7 +507,8 @@ mkUGenFn !n_output uid_fn special name rate_fn inputs = do
                       ,g_node_u_inputs=inputs
                       ,g_node_u_outputs=outputs
                       ,g_node_u_special=special
-                      ,g_node_u_ugenid=uid})
+                      ,g_node_u_ugenid=uid
+                      ,g_node_u_pure=is_pure})
 {-# INLINE mkUGenFn #-}
 
 -- | Synonym to make 'UGen' binding function.
@@ -528,16 +531,24 @@ type MkUGen
 -- | Make simple UGen function.
 mkSimpleUGen :: MkUGen
 mkSimpleUGen n_output uid_fn special name rate_fn input_ugens =
-  G (do let f = mkUGenFn n_output uid_fn special name rate_fn
+  G (do let f = mkUGenFn n_output uid_fn special name rate_fn True
         input_mce_nids <- mapM runG input_ugens
         normalize n_output f input_mce_nids)
 {-# INLINABLE mkSimpleUGen #-}
 
+mkImpureUGen :: MkUGen
+mkImpureUGen n_output uid_fn special name rate_fn input_ugens =
+  G (do let f = mkUGenFn n_output uid_fn special name rate_fn False
+        input_mce_nids <- mapM runG input_ugens
+        normalize n_output f input_mce_nids)
+{-# INLINABLE mkImpureUGen #-}
+
 -- | Like 'mkSimpleUGen', but treats last input argument as channels
 -- array.
-mkChannelsArrayUGen :: MkUGen
-mkChannelsArrayUGen n_output uid_fn special name rate_fn input_ugens =
-  G (do let f = mkUGenFn n_output uid_fn special name rate_fn
+mkChannelsArrayUGen :: Bool -> MkUGen
+mkChannelsArrayUGen is_pure n_output uid_fn special name rate_fn
+                    input_ugens =
+  G (do let f = mkUGenFn n_output uid_fn special name rate_fn is_pure
         input_mce_nids <- unChannelsArray input_ugens
         normalize n_output f input_mce_nids)
 {-# INLINABLE mkChannelsArrayUGen #-}
@@ -548,14 +559,14 @@ mkDemandUGen _n_output uid_fn special name rate_fn input_ugens =
   -- Traversing input ugens first, to get 'n_output' from the last
   -- element via 'mce_degree'.
   G (do (n_output, input_mce_ids) <- undemand input_ugens
-        let f = mkUGenFn n_output uid_fn special name rate_fn
+        let f = mkUGenFn n_output uid_fn special name rate_fn True
         normalize n_output f input_mce_ids)
 {-# INLINABLE mkDemandUGen #-}
 
 -- | Dedicated UGen constructor function for localBuf UGen.
 mkLocalBufUGen :: MkUGen
 mkLocalBufUGen n_output uid_fn special name rate_fn input_ugens =
-  G (do let f = mkUGenFn n_output uid_fn special name rate_fn
+  G (do let f = mkUGenFn n_output uid_fn special name rate_fn True
         dag <- ask
         incrementNumLocalBufs dag
         input_mce_nids <- mapM runG input_ugens
@@ -579,7 +590,8 @@ unary_op_with fn op a =
                                       ,g_node_u_inputs=inputs
                                       ,g_node_u_outputs=[rate]
                                       ,g_node_u_special=special
-                                      ,g_node_u_ugenid=NoId})
+                                      ,g_node_u_ugenid=NoId
+                                      ,g_node_u_pure=True})
                 _ -> error "unary_op_with: bad input"
         input_mce_nid <- unG a
         normalize 1 f [input_mce_nid])
@@ -627,7 +639,8 @@ binary_op_with fn op a b = G (mkbinop f a b)
                           ,g_node_u_inputs=inputs
                           ,g_node_u_outputs=[rate]
                           ,g_node_u_special=Special (fromEnum op)
-                          ,g_node_u_ugenid=NoId})
+                          ,g_node_u_ugenid=NoId
+                          ,g_node_u_pure=True})
 {-# INLINE binary_op_with #-}
 
 mkbinop :: ([NodeId] -> GraphM s NodeId)
@@ -779,7 +792,8 @@ mkNeg rate nid =
                       ,g_node_u_inputs=[nid]
                       ,g_node_u_outputs=[rate]
                       ,g_node_u_special=Special (fromEnum Neg)
-                      ,g_node_u_ugenid=NoId})
+                      ,g_node_u_ugenid=NoId
+                      ,g_node_u_pure=True})
 {-# INLINE mkNeg #-}
 
 mkBinaryOp :: Binary -> Rate -> [NodeId] -> GraphM s NodeId
@@ -789,7 +803,8 @@ mkBinaryOp op rate ins =
                       ,g_node_u_inputs=ins
                       ,g_node_u_outputs=[rate]
                       ,g_node_u_special=Special (fromEnum op)
-                      ,g_node_u_ugenid=NoId})
+                      ,g_node_u_ugenid=NoId
+                      ,g_node_u_pure=True})
 {-# INLINE mkBinaryOp #-}
 
 noId :: DAG s -> GraphM s UGenId

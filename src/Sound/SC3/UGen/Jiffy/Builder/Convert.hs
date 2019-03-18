@@ -500,7 +500,7 @@ remove_unused_nodes lni kt stop = go 0 0
           Nothing -> do
             mb_gn <- H.lookup kt k
             case mb_gn of
-              Just gn | can_remove gn -> do
+              Just (G_Node_U {..}) | g_node_u_pure -> do
                 H.delete kt k
                 let !n_removed' = n_removed + 1
                 go n_removed' (k+1)
@@ -508,24 +508,6 @@ remove_unused_nodes lni kt stop = go 0 0
                 insertLNI lni k (k-n_removed)
                 go n_removed (k+1)
 {-# INLINE remove_unused_nodes #-}
-
--- | 'True' if the given node can removed from current graph, otherwise
--- 'False'.
-can_remove :: G_Node -> Bool
-can_remove gn =
-  -- "SetBuf" is exceptional, it have single output, and is used for
-  -- side effect for setting local buffers, but the node id of SetBuf
-  -- itself is merely used.
-  --
-  -- XXX: Manage PureUGens and non-PureUGens. Some UGens shall kept in
-  -- the synthdef graph for the sake of side effects, such as buffer
-  -- write.
-  case gn of
-    G_Node_U {..} | not (null g_node_u_outputs)
-                  , g_node_u_name /= "SetBuf"
-                  , g_node_u_name /= "BufWr"
-                  , g_node_u_name /= "ClearBuf" -> True
-    _ -> False
 
 update_input_index :: LNI s -> BiMapKT s G_Node
                    -> (Int,G_Node) -> ST s ()

@@ -57,7 +57,7 @@ instance Audible UGen where
 --
 
 clearBuf :: UGen -> UGen
-clearBuf a = mkSimpleUGen 1 noId spec0 name r_fn [a]
+clearBuf a = mkImpureUGen 1 noId spec0 name r_fn [a]
   where
     name = "ClearBuf"
     r_fn = const_rate IR

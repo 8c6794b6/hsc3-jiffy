@@ -244,7 +244,8 @@ data G_Node
              , g_node_u_inputs :: [NodeId]
              , g_node_u_outputs :: [Output]
              , g_node_u_special :: {-# UNPACK #-} !Special
-             , g_node_u_ugenid :: !UGenId }
+             , g_node_u_ugenid :: !UGenId
+             , g_node_u_pure :: !Bool }
   -- ^ UGen node, for 'U_Node_U'.
   --
   -- Note that there is no constructor for proxy node because proxy

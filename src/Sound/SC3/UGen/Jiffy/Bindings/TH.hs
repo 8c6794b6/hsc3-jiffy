@@ -77,14 +77,16 @@ defineUGen u =
       ugenidE = if ugen_nondet u
                    then [e|hashUId|]
                    else [e|noId|]
+      isPure = ugen_name u `notElem` impureUGens
       mk
         | "LocalBuf" == ugen_name u = [e|mkLocalBufUGen|]
         | "Demand" == ugen_name u   = [e|mkDemandUGen|]
-        | ugen_std_mce u > 0        = [e|mkChannelsArrayUGen|]
+        | ugen_std_mce u > 0        = [e|mkChannelsArrayUGen isPure|]
+        | not isPure                = [e|mkImpureUGen|]
         | otherwise                 = [e|mkSimpleUGen|]
       ugenT = [t|UGen|]
       bodyE = [e|$(mk) $(noutE) $(ugenidE) spec0 $(scnameE)
-                       $(rateE) $(listE input_exps)|]
+                       $(rateE) $(listE input_exps) |]
       --
       typ = foldr (\a b -> appT (appT arrowT a) b) ugenT tyargs1
       cls = [clause pats1 (normalB bodyE) []]
@@ -112,6 +114,14 @@ enum_type_of name =
     "Interpolation" -> [t|Interpolation UGen|]
     "Warp"          -> [t|Warp UGen|]
     _               -> varT (mkName "unknown_enum_type")
+
+-- | Name of impure UGens. UGens listed here won't be removed during
+-- dead code elimination.
+impureUGens :: [String]
+impureUGens =
+  -- XXX: Any more ...?
+  [ "BufWr", "ClearBuf", "LocalOut", "OffsetOut", "Out", "Poll"
+  , "RandID", "RandSeed", "ReplaceOut", "SendTrig", "SetBuf", "XOut" ]
 
 --
 
