@@ -188,6 +188,35 @@ ugen_instance_tests =
         it "should_call_error" $
           print (toInteger (constant 42)) `shouldThrow` anyErrorCall
 
+    describe "EqE" $ do
+      de "equal_to" $ binary_spec EQ_ equal_to
+      de "not_equal_to" $ binary_spec NE not_equal_to
+
+    describe "OrdE" $ do
+      de "less_than" $ binary_spec LT_ less_than
+      de "less_than_or_equal_to" $ binary_spec LE less_than_or_equal_to
+      de "greater_than" $ binary_spec GT_ greater_than
+      de "greater_than_or_equal_to" $
+          binary_spec GE greater_than_or_equal_to
+
+    de "RealFracE" $ do
+      let c42 = constant 42
+      de "properFractionE" $
+        it "should_call_error" $
+          (case properFractionE c42 of (a,_) -> return (a::UGen))
+           `shouldThrow` anyErrorCall
+      de "truncateE" $
+        it "should_call_error" $
+          (case truncateE c42 of a -> a `seq` return (a::UGen))
+           `shouldThrow` anyErrorCall
+      de "roundE" $ do
+        let g0 = out 0 (roundE 1.2)
+            g1 = out 0 (roundE (sinOsc AR 440 0 * 100))
+        it "has_no_Round" $ u2g g0 `shouldNotSatisfy` hasBinaryOp Round
+        it "has_Round" $ u2g g1 `shouldSatisfy` hasBinaryOp Round
+      de "ceilingE" $ unary_spec Ceil ceilingE
+      de "floorE" $ unary_spec Floor floorE
+
     describe "UnaryOp" $ do
       de "ampDb" $ unary_spec AmpDb ampDb
       de "asFloat" $ unary_spec_no_cf AsFloat asFloat

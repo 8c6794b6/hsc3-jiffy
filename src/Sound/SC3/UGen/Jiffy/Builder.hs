@@ -64,9 +64,10 @@ import Data.ByteString.Char8 (pack)
 
 -- hsc3
 import Sound.SC3
-  ( Binary(..), BinaryOp(..), Rate(..), K_Type(..)
-  , Sample, Special(..), UGenId(..), Unary(..), UnaryOp(..)
-  , Envelope(..), envelope_sc3_array )
+  ( Binary(..), BinaryOp(..), Envelope(..), EqE(..), K_Type(..)
+  , OrdE(..),  Rate(..), RealFracE(..), Sample, Special(..)
+  , UGenId(..), Unary(..), UnaryOp(..), envelope_sc3_array )
+import Sound.SC3.Common.Math (sc3_round_to)
 import Sound.SC3.Server.Graphdef (Graphdef(..))
 import Sound.SC3.UGen.Graph (U_Graph)
 
@@ -253,6 +254,32 @@ instance Integral UGen where
 
 instance Show UGen where
   showsPrec _ _ = showString "<UGen>"
+
+instance EqE UGen where
+  equal_to = binary_op_with equal_to EQ_
+  {-# INLINE equal_to #-}
+  not_equal_to = binary_op_with not_equal_to NE
+  {-# INLINE not_equal_to #-}
+
+instance OrdE UGen where
+  less_than = binary_op_with less_than LT_
+  {-# INLINE less_than #-}
+  less_than_or_equal_to = binary_op_with less_than_or_equal_to LE
+  {-# INLINE less_than_or_equal_to #-}
+  greater_than = binary_op_with greater_than GT_
+  {-# INLINE greater_than #-}
+  greater_than_or_equal_to = binary_op_with greater_than_or_equal_to GE
+  {-# INLINE greater_than_or_equal_to #-}
+
+instance RealFracE UGen where
+  properFractionE = error "G: properFractionE"
+  truncateE = error "G: truncateE"
+  roundE i = binary_op_with sc3_round_to Round i 1
+  {-# INLINE roundE #-}
+  ceilingE = unary_op_with ceilingE Ceil
+  {-# INLINE ceilingE #-}
+  floorE = unary_op_with floorE Floor
+  {-# INLINE floorE #-}
 
 instance UnaryOp UGen where
   ampDb = unary_op_with ampDb AmpDb
