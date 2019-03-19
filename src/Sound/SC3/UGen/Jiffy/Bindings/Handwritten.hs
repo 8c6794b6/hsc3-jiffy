@@ -19,6 +19,8 @@ module Sound.SC3.UGen.Jiffy.Bindings.Handwritten
   , dup
   , fft'
   , ifft'
+  , klangSpec
+  , klankSpec
   , mix
   , packFFTSpec
   , unpackFFT
@@ -27,6 +29,7 @@ module Sound.SC3.UGen.Jiffy.Bindings.Handwritten
 
 -- base
 import Data.Foldable (Foldable(..))
+import Data.List (transpose)
 
 -- hosc
 import Sound.OSC (sendMessage)
@@ -176,6 +179,16 @@ fft' buf i = fft buf i 0.5 0 1 0
 ifft' :: UGen -> UGen
 ifft' buf = ifft buf 0 0
 
+-- | Format frequency, amplitude, and phase data as required for
+-- 'klang'.
+klangSpec :: [UGen] -> [UGen] -> [UGen] -> UGen
+klangSpec fs as ps = mce (concat (transpose [fs, as, ps]))
+
+-- | Format frequency, amplitude, and decay time as required for
+-- 'klank'.
+klankSpec :: [UGen] -> [UGen] -> [UGen] -> UGen
+klankSpec = klangSpec
+
 -- | Collapse possible mce by summing.
 mix :: UGen -> UGen
 mix g = do
@@ -197,10 +210,7 @@ mix g = do
 
 -- | Format magnitude and phase data data as required for 'packFFT'.
 packFFTSpec :: [UGen] -> [UGen] -> UGen
-packFFTSpec mags phases = mce (go mags phases)
-  where
-    go []     ys = ys
-    go (x:xs) ys = x : go ys xs
+packFFTSpec mags phases = mce (interleave mags phases)
 
 -- | Unpack an FFT chain into separate demand-rate FFT bin streams.
 --
@@ -258,3 +268,15 @@ intG = constantG . fromIntegral
 constantG :: Sample -> GraphM s (MCE NodeId)
 constantG = fmap MCEU . hashconsC . G_Node_C
 {-# INLINE constantG #-}
+
+-- | Merge with taking from each input.
+--
+-- >>> interleave [1,2,3] [4,5,6]
+-- [1,4,2,5,3,6]
+--
+interleave :: [a] -> [a] -> [a]
+interleave = go
+  where
+    go []     ys = ys
+    go (x:xs) ys = x : go ys xs
+{-# INLINE interleave #-}
