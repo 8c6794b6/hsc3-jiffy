@@ -355,6 +355,19 @@ handwritten_graph =
             in  S.out 0 (S.mce2 (s*0.2) t)
       same_graph j0 h0
 
+    describe "pvcollect" $ do
+      let j0 = let sf = sinOsc AR 440 0
+                   c1 = fft' 10 sf
+                   f m p _ = (m+delayN m 1 1,p)
+                   c2 = pvcollect c1 4 f 0 5 0
+               in  out 0 (ifft' c2)
+          h0 = let sf = S.sinOsc AR 440 0
+                   c1 = S.fft' 10 sf
+                   f m p _ = (m+S.delayN m 1 1,p)
+                   c2 = S.pvcollect c1 4 f 0 5 0
+               in  S.out 0 (S.ifft' c2)
+      same_graph j0 h0
+
     describe "sendReply" $ do
       let j0 = do
             s0 <- share (lfdNoise0 KR 5)

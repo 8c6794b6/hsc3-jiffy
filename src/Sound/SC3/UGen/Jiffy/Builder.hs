@@ -828,7 +828,14 @@ const_rate !r _ _ = return r
 
 -- | Get rate from index of 'NodeId' argument.
 get_rate_at :: Int -> [NodeId] -> DAG s -> GraphM s Rate
-get_rate_at !i nids dag = g_node_rate <$> lookup_g_node (nids !! i) dag
+get_rate_at !i nids dag = do
+  n <- lookup_g_node (nids !! i) dag
+  case g_node_rate n of
+    -- Filter UGens with demand rate inputs are forced to run in control
+    -- rate, otherwise unwanted demand rate appear while chaining
+    -- signals in 'pvcollect'.
+    DR -> pure KR
+    rt -> pure rt
 {-# INLINE get_rate_at #-}
 
 -- | Get maximum rate from selected node ids by input argument indices.

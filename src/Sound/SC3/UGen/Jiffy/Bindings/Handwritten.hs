@@ -23,6 +23,7 @@ module Sound.SC3.UGen.Jiffy.Bindings.Handwritten
   , klankSpec
   , mix
   , packFFTSpec
+  , pvcollect
   , unpackFFT
   , wrapOut
   ) where
@@ -212,6 +213,22 @@ mix g = do
 packFFTSpec :: [UGen] -> [UGen] -> UGen
 packFFTSpec mags phases = mce (interleave mags phases)
 
+-- | Apply function /f/ to each bin of an @FFT@ chain, /f/ receives
+-- magnitude, phase, and index and returns a @(magnitude, phase)@.
+pvcollect :: UGen -- ^ FFT chain.
+          -> Int  -- ^ Number of frames.
+          -> (UGen -> UGen -> Int -> (UGen,UGen)) -- ^ Function /f/.
+          -> Int  -- ^ From bin.
+          -> Int  -- ^ To bin.
+          -> UGen -- ^ Zero others?
+          -> UGen
+pvcollect c nframes f from to z =
+  let (ms,ps) = unzip (unpackFFT c nframes from to)
+      is = [from .. to]
+      e = zipWith3 f ms ps is
+      mps = uncurry packFFTSpec (unzip e)
+  in  packFFT c nframes from to z mps
+
 -- | Unpack an FFT chain into separate demand-rate FFT bin streams.
 --
 -- Unline hsc3, this function returns a list of tuples of magnitude and
@@ -269,7 +286,7 @@ constantG :: Sample -> GraphM s (MCE NodeId)
 constantG = fmap MCEU . hashconsC . G_Node_C
 {-# INLINE constantG #-}
 
--- | Merge with taking from each input.
+-- | Merge with taking element from each list.
 --
 -- >>> interleave [1,2,3] [4,5,6]
 -- [1,4,2,5,3,6]
