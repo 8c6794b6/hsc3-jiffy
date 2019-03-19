@@ -288,6 +288,97 @@ handwritten_graph =
             in  S.out 0 (o*0.1)
       same_graph j0 h0
 
+    describe "fftTrigger" $ do
+      let j0 = out 0 (fftTrigger (localBuf 1 512) 0.5 0)
+          h0 = S.out 0 (S.fftTrigger (S.localBuf 'a' 1 512) 0.5 0)
+      same_graph j0 h0
+
+    describe "dwrand" $ do
+      let j0 = let n = dwrand 32 (mce [0.5,0.3,0.2]) (mce [1,3,7])
+                   x = mouseX KR 1 400 Exponential 0.1
+                   t = impulse KR x 0
+                   f = demand t 0 n * 30 + 340
+               in  out 0 (sinOsc AR f 0 * 0.1)
+          h0 = let n = S.dwrand 'a' 32 (S.mce [0.5,0.3,0.2]) (S.mce [1,3,7])
+                   x = S.mouseX KR 1 400 Exponential 0.1
+                   t = S.impulse KR x 0
+                   f = S.demand t 0 n * 30 + 340
+               in  S.out 0 (S.sinOsc AR f 0 * 0.1)
+      same_graph j0 h0
+
+    describe "packFFT" $ do
+      let j0 =
+            let s = packFFTSpec [1,1,1,1] [0,0,0,0]
+            in  out 0 (packFFT (localBuf 4 1) 4 0 3 0 s)
+          h0 =
+            let s = S.packFFTSpec [1,1,1,1] [0,0,0,0]
+            in  S.out 0 (S.packFFT (S.localBuf 'a' 4 1) 4 0 3 0 s)
+      same_graph j0 h0
+
+    describe "poll" $ do
+      let j0 = let t = impulse KR 10 0
+                   l = line KR 0 1 1 RemoveSynth
+               in  poll t l 0 "polling ..."
+          h0 = let t = S.impulse KR 10 0
+                   l = S.line KR 0 1 1 RemoveSynth
+               in  S.poll t l 0 (S.label "polling ...")
+      same_graph j0 h0
+
+    describe "pv_HainsworthFoote" $ do
+      let j0 = do
+            s <- share (lfSaw AR (lfNoise0 KR 1 * 90 + 400) 0 * 0.5)
+            let b = localBuf 2048 1
+                f = fft' b s
+                d = pv_HainsworthFoote f 1 0 0.9 0.5
+                t = sinOsc AR 440 0 * decay (d*0.1) 0.1
+            out 0 (mce2 (s*0.2) t)
+          h0 =
+            let s = S.lfSaw AR (S.lfNoise0 'a' KR 1 * 90 + 400) 0 * 0.5
+                b = S.localBuf 'b' 2048 1
+                f = S.fft' b s
+                d = S.pv_HainsworthFoote f 1 0 0.9 0.5
+                t = S.sinOsc AR 440 0 * S.decay (d*0.1) 0.1
+            in  S.out 0 (S.mce2 (s*0.2) t)
+      same_graph j0 h0
+
+    describe "sendReply" $ do
+      let j0 = do
+            s0 <- share (lfdNoise0 KR 5)
+            s1 <- share (lfdNoise0 KR 5)
+            let o = sinOsc AR (s0 * 200 + 500) 0 * s1 * 0.1
+            _ <- sendReply s0 0 "/send-reply" [s0,s1]
+            out 0 o
+          h0 =
+            let s0 = S.lfdNoise0 'a' KR 5
+                s1 = S.lfdNoise0 'b' KR 5
+                o =  S.sinOsc AR (s0 * 200 + 500) 0 * s1 * 0.1
+            in  S.mrg [S.out 0 o, S.sendReply s0 0 "/send-reply" [s0,s1]]
+      same_graph j0 h0
+
+    describe "unpackFFT" $ do
+      let j0 = do
+            b <- share (localBuf 1024 1)
+            f <- share (lfdNoise3 KR (lfNoise0 KR 1 * 40 + 60) * 700 + 800)
+            let s = sinOsc AR f 0
+                c0 = fft' b s
+                (ms0,ps0) = unzip (unpackFFT c0 1 0 0)
+                (ms1,ps1) = (map sqrt ms0, map sqrt ps0)
+                c1 = packFFT c0 1 0 0 0 (packFFTSpec ms1 ps1)
+            out 0 (ifft' c1 * 0.1)
+          h0 =
+            let b = S.localBuf 'a' 1024 1
+                f0 = (S.lfNoise0 'c' KR 1 * 40 + 60)
+                f = S.lfdNoise3 'b' KR f0 * 700 + 800
+                s = S.sinOsc AR f 0
+                c0 = S.fft' b s
+                mags0 = S.unpackFFT c0 1 0 0 0
+                phss0 = S.unpackFFT c0 1 0 0 1
+                mags1 = map sqrt mags0
+                phss1 = map sqrt phss0
+                c1 = S.packFFT c0 1 0 0 0 (S.packFFTSpec mags1 phss1)
+            in  S.out 0 (S.ifft' c1 * 0.1)
+      same_graph j0 h0
+
     describe "wrapOut" $ do
       let j0 = sinOsc AR 440 0
           j1 = wrapOut (wrapOut (wrapOut j0))

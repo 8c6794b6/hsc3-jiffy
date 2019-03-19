@@ -33,8 +33,9 @@ ugenDecsQ = sequence (concatMap defineUGen ugenDB)
 defineUGen :: U -> [DecQ]
 defineUGen u =
   let name = case ugen_hs_name u of
-               -- Avoid conflict with "Prelude.max".
-               "max" -> mkName "max_"
+               -- Avoid conflicts.
+               "concat" -> mkName "concat'"
+               "max" -> mkName "max'"
                other -> mkName other
       rate_name = mkName "rate"
       numchan_name = mkName "numChannels"
@@ -91,7 +92,9 @@ defineUGen u =
       typ = foldr (\a b -> appT (appT arrowT a) b) ugenT tyargs1
       cls = [clause pats1 (normalB bodyE) []]
       --
-  in  [sigD name typ, funD name cls]
+  in  if ugen_name u `elem` ignoredUGens
+         then []
+         else [sigD name typ, funD name cls]
 
 enum_exp_of :: Name -> String -> ExpQ
 enum_exp_of var_name fn =
@@ -114,6 +117,12 @@ enum_type_of name =
     "Interpolation" -> [t|Interpolation UGen|]
     "Warp"          -> [t|Warp UGen|]
     _               -> varT (mkName "unknown_enum_type")
+
+-- | Name of ignored UGens. UGens listed here may exist in database but
+-- defined with hand written codes.
+ignoredUGens :: [String]
+ignoredUGens =
+  [ "Dwrand", "PV_HainsworthFoote", "Poll" ]
 
 -- | Name of impure UGens. UGens listed here won't be removed during
 -- dead code elimination.

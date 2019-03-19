@@ -31,6 +31,8 @@ module Sound.SC3.UGen.Jiffy.Builder
   , mkDemandUGen
   , mkLocalBufUGen
 
+  , mkUGenFn
+  , multiNew
   , const_rate
   , maximum_rate
   , get_rate_at
@@ -41,7 +43,8 @@ module Sound.SC3.UGen.Jiffy.Builder
   , envelope_to_ugen
   , isSink
 
-  , G
+  , G(..)
+  , runG
   , MCE
   , NodeId
   ) where
@@ -408,7 +411,7 @@ ugen_to_graph = runUGenWith dag_to_U_Graph
 -- | Unwrap the action inside 'G'. This function will store
 -- 'NConstant' values to 'DAG' when found, and return 'NodeId_C'
 -- value instead of the original 'NConstant'.
-runG :: G (MCE NodeId) -> GraphM s (MCE NodeId)
+runG :: UGen -> GraphM s (MCE NodeId)
 runG g =
   let f n = case n of
               NConstant v -> hashconsC (G_Node_C v)
@@ -459,19 +462,19 @@ tr_control name val = G (fmap MCEU (hashconsK node))
 --   MCE_U (MCE_Vector [MCE_U (MCE_Vector [...]), ...])
 --
 -- The 'Sound.SC3.UGen.Jiffy.Builder.Internal.MCE' data type used in
--- 'normalize' has recursive structure to express such recusive input
+-- 'multiNew' has recursive structure to express such recusive input
 -- nodes.
 
 -- | Recursively expand multi channel inputs, and if the number of
 -- outputs were greater than 1, make output proxy node ids.
-normalize :: Int
+multiNew :: Int
           -- ^ Number of outputs.
           -> ([NodeId] -> GraphM s NodeId)
           -- ^ Function applied to expanded inputs.
           -> [MCE NodeId]
           -- ^ Multi-channel input node ids.
           -> GraphM s (MCE NodeId)
-normalize n_outputs f = go
+multiNew n_outputs f = go
   where
     go inputs =
       case mce_max_degree inputs of
@@ -486,7 +489,7 @@ normalize n_outputs f = go
           let inputs' = map (mce_list . mce_extend n) inputs
           MCEV n <$> mapM go (transpose inputs')
     {-# INLINE go #-}
-{-# INLINABLE normalize #-}
+{-# INLINABLE multiNew #-}
 
 -- | Inner function used in UGen constructor functions.
 mkUGenFn :: forall s. Int
@@ -533,14 +536,14 @@ mkSimpleUGen :: MkUGen
 mkSimpleUGen n_output uid_fn special name rate_fn input_ugens =
   G (do let f = mkUGenFn n_output uid_fn special name rate_fn True
         input_mce_nids <- mapM runG input_ugens
-        normalize n_output f input_mce_nids)
+        multiNew n_output f input_mce_nids)
 {-# INLINABLE mkSimpleUGen #-}
 
 mkImpureUGen :: MkUGen
 mkImpureUGen n_output uid_fn special name rate_fn input_ugens =
   G (do let f = mkUGenFn n_output uid_fn special name rate_fn False
         input_mce_nids <- mapM runG input_ugens
-        normalize n_output f input_mce_nids)
+        multiNew n_output f input_mce_nids)
 {-# INLINABLE mkImpureUGen #-}
 
 -- | Like 'mkSimpleUGen', but treats last input argument as channels
@@ -550,7 +553,7 @@ mkChannelsArrayUGen is_pure n_output uid_fn special name rate_fn
                     input_ugens =
   G (do let f = mkUGenFn n_output uid_fn special name rate_fn is_pure
         input_mce_nids <- unChannelsArray input_ugens
-        normalize n_output f input_mce_nids)
+        multiNew n_output f input_mce_nids)
 {-# INLINABLE mkChannelsArrayUGen #-}
 
 -- | Dedicated UGen constructor function for demand UGen.
@@ -560,7 +563,7 @@ mkDemandUGen _n_output uid_fn special name rate_fn input_ugens =
   -- element via 'mce_degree'.
   G (do (n_output, input_mce_ids) <- undemand input_ugens
         let f = mkUGenFn n_output uid_fn special name rate_fn True
-        normalize n_output f input_mce_ids)
+        multiNew n_output f input_mce_ids)
 {-# INLINABLE mkDemandUGen #-}
 
 -- | Dedicated UGen constructor function for localBuf UGen.
@@ -570,7 +573,7 @@ mkLocalBufUGen n_output uid_fn special name rate_fn input_ugens =
         dag <- ask
         incrementNumLocalBufs dag
         input_mce_nids <- mapM runG input_ugens
-        normalize n_output f input_mce_nids)
+        multiNew n_output f input_mce_nids)
 {-# INLINABLE mkLocalBufUGen #-}
 
 -- | Make a unary operator UGen, with constant folding function applied
@@ -594,7 +597,7 @@ unary_op_with fn op a =
                                       ,g_node_u_pure=True})
                 _ -> error "unary_op_with: bad input"
         input_mce_nid <- unG a
-        normalize 1 f [input_mce_nid])
+        multiNew 1 f [input_mce_nid])
 {-# INLINEABLE unary_op_with #-}
 
 unary_op :: Unary -> UGen -> UGen
@@ -648,7 +651,7 @@ mkbinop :: ([NodeId] -> GraphM s NodeId)
 mkbinop f (G a) (G b) =
   do a' <- a
      b' <- b
-     normalize 1 f [a',b']
+     multiNew 1 f [a',b']
 {-# INLINE mkbinop #-}
 
 binary_op :: Binary -> UGen -> UGen -> UGen
@@ -838,7 +841,7 @@ maximum_rate is nids dag = do
 {-# INLINE maximum_rate #-}
 
 -- | Input unwrapper for channels array UGens.
-unChannelsArray :: [G (MCE NodeId)] -> GraphM s [MCE NodeId]
+unChannelsArray :: [UGen] -> GraphM s [MCE NodeId]
 unChannelsArray is =
   case is of
     []   -> return []
@@ -847,7 +850,7 @@ unChannelsArray is =
 {-# INLINE unChannelsArray #-}
 
 -- | Input unwrapper for demand UGen.
-undemand :: [G (MCE NodeId)] -> GraphM s (Int, [MCE NodeId])
+undemand :: [UGen] -> GraphM s (Int, [MCE NodeId])
 undemand xs =
   case xs of
     []   -> return (0,[])
