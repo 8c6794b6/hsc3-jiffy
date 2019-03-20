@@ -293,6 +293,12 @@ handwritten_graph =
           h0 = S.out 0 (S.fftTrigger (S.localBuf 'a' 1 512) 0.5 0)
       same_graph j0 h0
 
+    describe "dinf" $ do
+      it "should_be_infinity" $
+        case runUGen dinf of
+          MCEU (NConstant x) -> x `shouldSatisfy` isInfinite
+          _ -> expectationFailure "not a constant"
+
     describe "dwrand" $ do
       let j0 = let n = dwrand 32 (mce [0.5,0.3,0.2]) (mce [1,3,7])
                    x = mouseX KR 1 400 Exponential 0.1

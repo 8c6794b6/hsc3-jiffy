@@ -309,7 +309,7 @@ stringG str = do
 
 -- | Store 'Char' as constant value in 'GraphM'.
 charG :: Char -> GraphM s (MCE NodeId)
-charG = constantG . fromIntegral . fromEnum
+charG = intG . fromEnum
 {-# INLINE charG #-}
 
 -- | Store 'Int' as constant value in 'GraphM'.

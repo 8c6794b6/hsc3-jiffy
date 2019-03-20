@@ -45,8 +45,8 @@ module Sound.SC3.UGen.Jiffy.Builder
 
   , G(..)
   , runG
-  , MCE
-  , NodeId
+  , MCE(..)
+  , NodeId(..)
   ) where
 
 -- base
