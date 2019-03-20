@@ -306,6 +306,11 @@ handwritten_graph =
                in  S.out 0 (S.sinOsc AR f 0 * 0.1)
       same_graph j0 h0
 
+    describe "exprange" $ do
+      let j0 = out 0 (exprange 0.1 8 (sinOsc KR 4 0))
+          h0 = S.out 0 (S.exprange 0.1 8 (S.sinOsc KR 4 0))
+      same_graph j0 h0
+
     describe "klangSpec" $ do
       let j0 = let a = klangSpec [440,880,1320] [0.5,0.4,0.3] [0,0,0]
                in  out 0 (klang AR 1 0 a * 0.2)
@@ -318,6 +323,11 @@ handwritten_graph =
                in  out 0 (klank (impulse AR 1 0) 1 0 1 a)
           h0 = let a = S.klankSpec [330,440,770] [0.5,0.4,0.3] [1,1.2,0.8]
                in  S.out 0 (S.klank (S.impulse AR 1 0) 1 0 1 a)
+      same_graph j0 h0
+
+    describe "linLin" $ do
+      let j0 = out 0 (linLin (sinOsc AR 440 0) (-1) 1 0.5 2)
+          h0 = S.out 0 (S.linLin (S.sinOsc AR 440 0) (-1) 1 0.5 2)
       same_graph j0 h0
 
     describe "packFFT" $ do

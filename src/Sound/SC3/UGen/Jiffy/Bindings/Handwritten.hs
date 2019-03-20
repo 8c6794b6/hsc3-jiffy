@@ -17,10 +17,12 @@ module Sound.SC3.UGen.Jiffy.Bindings.Handwritten
     -- * Composite UGen functions
   , asLocalBuf
   , dup
+  , exprange
   , fft'
   , ifft'
   , klangSpec
   , klankSpec
+  , linLin
   , mix
   , packFFTSpec
   , pvcollect
@@ -46,9 +48,12 @@ import Sound.SC3.UGen.Jiffy.Bindings.Generated
 import Sound.SC3.UGen.Jiffy.Builder
 import Sound.SC3.UGen.Jiffy.Builder.GraphM
 
+
+-- ------------------------------------------------------------------------
 --
 -- Orphan instance
 --
+-- ------------------------------------------------------------------------
 
 -- | 'Audible' instance for 'UGen' is defined here, since the 'out'
 -- UGen, whiich is generated from template haskell code, is referred
@@ -60,9 +65,12 @@ instance Audible UGen where
         sn = s_new "anon" nid aa gid params
     in  sendMessage (withCM dr sn)
 
+
+-- ------------------------------------------------------------------------
 --
--- Not defined with hsc3-db data
+-- UGens not defined with hsc3-db data
 --
+-- ------------------------------------------------------------------------
 
 -- | Zero local buffer.
 --
@@ -154,9 +162,12 @@ unpack1FFT buf sz idx which =
     where
       name = "Unpack1FFT"
 
+
+-- ------------------------------------------------------------------------
 --
 -- Composite UGen functions
 --
+-- ------------------------------------------------------------------------
 
 -- | Generate a 'localBuf' and use 'setBuf' to initialise it.
 asLocalBuf :: Foldable t => t UGen -> UGen
@@ -170,6 +181,10 @@ asLocalBuf xs = do
 dup :: Int -> UGen -> UGen
 dup n = mce . (replicate n)
 {-# INLINABLE dup #-}
+
+-- | 'linExp' with input range of @(-1,1)@.
+exprange :: UGen -> UGen -> UGen -> UGen
+exprange lo hi s = linExp s (-1) 1 lo hi
 
 -- | Variant 'fft' with default values for hop size (0.5), window type
 -- (0), active status (1) and wndow size (0).
@@ -189,6 +204,13 @@ klangSpec fs as ps = mce (concat (transpose [fs, as, ps]))
 -- 'klank'.
 klankSpec :: [UGen] -> [UGen] -> [UGen] -> UGen
 klankSpec = klangSpec
+
+-- | Map from one linear range to another linear range.
+linLin :: UGen -> UGen -> UGen -> UGen -> UGen -> UGen
+linLin i slo shi dlo dhi =
+  let scale = (dhi - dlo) / (shi - slo)
+      offset = dlo - (scale * slo)
+  in  i * scale + offset
 
 -- | Collapse possible mce by summing.
 mix :: UGen -> UGen
@@ -259,9 +281,12 @@ wrapOut ug = do
      else out 0 (return mce_nid)
 {-# INLINE wrapOut #-}
 
+
+-- ------------------------------------------------------------------------
 --
 -- Auxiliary
 --
+-- ------------------------------------------------------------------------
 
 -- | Get list of 'MCE' 'NodeId' from 'String', with length prefix.
 stringG :: String -> GraphM s [MCE NodeId]
