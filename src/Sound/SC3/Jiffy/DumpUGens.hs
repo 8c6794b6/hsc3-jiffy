@@ -32,9 +32,12 @@ import qualified Sound.SC3.UGen.Graph as SC3UG
 import Sound.SC3.Jiffy.Compat
 import Sound.SC3.UGen.Jiffy.Builder
 
+
+-- ------------------------------------------------------------------------
 --
 -- Dumper
 --
+-- ------------------------------------------------------------------------
 
 class DumpUGens a where
   dumpUGenString :: a -> String

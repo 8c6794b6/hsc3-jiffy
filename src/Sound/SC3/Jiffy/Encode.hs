@@ -19,9 +19,12 @@ import qualified Data.ByteString.Lazy as L
 import Sound.SC3.Server.Graphdef
   ( Graphdef(..), Name, Control, Sample, Input(..), UGen )
 
+
+-- ------------------------------------------------------------------------
 --
 -- Encoding functions for 'Graphdef'
 --
+-- ------------------------------------------------------------------------
 
 encode_pstr :: Name -> B.Builder
 encode_pstr n = B.word8 (fromIntegral (S.length n)) <> B.byteString n
@@ -70,9 +73,12 @@ encode_graphdef' (Graphdef nm cs ks us) =
 encode_graphdef :: Graphdef -> L.ByteString
 encode_graphdef = B.toLazyByteString . encode_graphdef'
 
+
+-- ------------------------------------------------------------------------
 --
 -- Auxiliary
 --
+-- ------------------------------------------------------------------------
 
 i16 :: Int -> B.Builder
 i16 = B.int16BE . fromIntegral

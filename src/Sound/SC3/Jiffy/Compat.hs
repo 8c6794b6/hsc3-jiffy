@@ -42,9 +42,11 @@ import Sound.SC3.UGen.Jiffy.Bindings
 import Sound.SC3.UGen.Jiffy.Builder
 
 
+-- ------------------------------------------------------------------------
 --
 -- Synthdef
 --
+-- ------------------------------------------------------------------------
 
 -- | A named unit generator graph.
 data Synthdef = Synthdef { synthdefName :: String
@@ -110,17 +112,21 @@ synthstat_concise ug =
   in  unlines (zipWith const lns (tail lns))
 
 
+-- ------------------------------------------------------------------------
 --
 -- OSC command for scsynth server
 --
+-- ------------------------------------------------------------------------
 
 d_recv :: Synthdef -> Message
 d_recv = d_recv_bytes . synthdefData
 
 
+-- ------------------------------------------------------------------------
 --
 -- UGen graphs
 --
+-- ------------------------------------------------------------------------
 
 default_ugen_graph :: UGen
 default_ugen_graph =

@@ -77,9 +77,11 @@ import Sound.SC3.UGen.Jiffy.Builder.Convert
 import Sound.SC3.UGen.Jiffy.Builder.GraphM
 
 
+-- ------------------------------------------------------------------------
 --
 -- Wrapper newtype
 --
+-- ------------------------------------------------------------------------
 
 -- | Newtype for Synthdef UGen graph construction with hash-consing.
 newtype G a = G {unG :: forall s. GraphM s a}
@@ -106,9 +108,11 @@ instance MonadFail G where
 #endif
 
 
+-- ------------------------------------------------------------------------
 --
 -- The UGen type and instance declarations
 --
+-- ------------------------------------------------------------------------
 
 -- | UGen is a type synonym of 'G' with 'MCE' of 'NodeId'.
 type UGen = G (MCE NodeId)
@@ -383,9 +387,12 @@ instance BinaryOp UGen where
   wrap2 = binary_op_with wrap2 Wrap2
   {-# INLINE wrap2 #-}
 
+
+-- ------------------------------------------------------------------------
 --
 -- Converting to U_Graph and Graphdef
 --
+-- ------------------------------------------------------------------------
 
 runUGen :: G a -> a
 runUGen (G g) = runST (emptyDAG >>= runGraphM g)
@@ -410,9 +417,12 @@ ugen_to_graph :: UGen -> U_Graph
 ugen_to_graph = runUGenWith dag_to_U_Graph
 {-# INLINABLE ugen_to_graph #-}
 
+
+-- ------------------------------------------------------------------------
 --
 -- Constant, control, and UGen constructors
 --
+-- ------------------------------------------------------------------------
 
 -- Note [Constant foldings]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -892,9 +902,12 @@ undemand xs =
     y:ys -> runG y >>= \n -> fmap (fmap (n:)) (undemand ys)
 {-# INLINE undemand #-}
 
+
+-- ------------------------------------------------------------------------
 --
 -- Auxiliary UGen related functions
 --
+-- ------------------------------------------------------------------------
 
 mceChannel :: Int -> UGen -> UGen
 mceChannel n g =

@@ -42,9 +42,12 @@ import Sound.SC3.UGen.Type (Sample)
 -- Internal
 import Sound.SC3.UGen.Jiffy.Builder.GraphM
 
+
+-- ------------------------------------------------------------------------
 --
 -- DAG to Graphdef
 --
+-- ------------------------------------------------------------------------
 
 -- | Mapping from control node id to 'Input'.
 newtype KTable s = KTable (HT.HashTable s Int Input)
@@ -180,9 +183,11 @@ convert_inputs (KTable table) shift = mapM f
         NConstant v  -> error ("convert_input: raw constant " ++ show v)
 {-# INLINE convert_inputs #-}
 
+-- ------------------------------------------------------------------------
 --
 -- DAG to U_Graph
 --
+-- ------------------------------------------------------------------------
 
 dag_to_U_Graph :: DAG s -> ST s U_Graph
 dag_to_U_Graph dag@(DAG _ _ cm km um) = do
@@ -245,9 +250,12 @@ nid_to_port kshift ushift nid =
     NConstant v  -> error ("nid_to_port: constant " ++ show v)
 {-# INLINE nid_to_port #-}
 
+
+-- ------------------------------------------------------------------------
 --
 -- UGen graph optimization
 --
+-- ------------------------------------------------------------------------
 
 -- | Descendant node index, from ID to number of descendant nodes.
 newtype DNI s = DNI (STUArray s Int Int)

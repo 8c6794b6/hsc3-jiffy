@@ -78,9 +78,11 @@ import Sound.SC3.Server.Graphdef (Name)
 -- Internal
 import Sound.SC3.Jiffy.Orphan ()
 
+-- ------------------------------------------------------------------------
 --
 -- DAG and its builder
 --
+-- ------------------------------------------------------------------------
 
 -- | Nwetype wrapper for synthdef builder internal. Simplified reader
 -- transformer with 'DAG' state wrapping 'ST' monad.
@@ -130,9 +132,12 @@ emptyDAG =
   DAG <$> newSTRef 0 <*> newOpMap 8 <*>
   empty 16 <*> empty 8 <*> empty 128
 
+
+-- ------------------------------------------------------------------------
 --
 -- Simple bidirectional map
 --
+-- ------------------------------------------------------------------------
 
 -- | Bidirectional map data structure with 'Int' key.
 data BiMap s a =
@@ -194,9 +199,12 @@ sizeBM :: BiMap s a -> ST s Int
 sizeBM (BiMap ref _ _) = readSTRef ref
 {-# INLINE sizeBM #-}
 
+
+-- ------------------------------------------------------------------------
 --
 -- Operator map, for synthdef graph optimization
 --
+-- ------------------------------------------------------------------------
 
 -- | Operator map, from node id to 'OpArg'.
 newtype OpMap s = OpMap (HT.HashTable s Int OpArg)
@@ -222,9 +230,11 @@ insertOpArg (OpMap om) !k !v = HC.insert om k v
 {-# INLINE insertOpArg #-}
 
 
+-- ------------------------------------------------------------------------
 --
 -- Node and node ID
 --
+-- ------------------------------------------------------------------------
 
 -- | Data type to represent UGen node in a 'DAG' graph. This data is
 -- intended to be converted to 'U_Node' with key values from current
@@ -303,9 +313,11 @@ instance Hashable NodeId where
       NConstant v  -> s `hashWithSalt` v
   {-# INLINE hashWithSalt #-}
 
+-- ------------------------------------------------------------------------
 --
 -- MCE, recursivly nested
 --
+-- ------------------------------------------------------------------------
 
 -- | Recursive data type for multi channel expansion.
 data MCE a
@@ -361,9 +373,12 @@ mce_list m =
     MCEV _ xs -> xs
 {-# INLINE mce_list #-}
 
+
+-- ------------------------------------------------------------------------
 --
 -- Auxiliary functions for NodeId, DAG, and G_Node
 --
+-- ------------------------------------------------------------------------
 
 nid_value :: NodeId -> Int
 nid_value nid =
@@ -397,9 +412,12 @@ g_node_rate n =
     G_Node_U {} -> g_node_u_rate n
 {-# INLINE g_node_rate #-}
 
+
+-- ------------------------------------------------------------------------
 --
 -- Synthdef construction helpers
 --
+-- ------------------------------------------------------------------------
 
 incrementNumLocalBufs :: DAG s -> GraphM s ()
 incrementNumLocalBufs dag =
@@ -412,9 +430,12 @@ registerOp (DAG _ opmap _ _ _) me oparg = do
   return me
 {-# INLINE registerOp #-}
 
+
+-- ------------------------------------------------------------------------
 --
 -- Hash-consing
 --
+-- ------------------------------------------------------------------------
 
 hashcons :: (Int -> NodeId)
          -> (DAG s -> BiMap s G_Node)
