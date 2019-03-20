@@ -27,6 +27,7 @@ module Sound.SC3.UGen.Jiffy.Bindings.Handwritten
   , packFFTSpec
   , pvcollect
   , unpackFFT
+  , soundIn
   , wrapOut
   ) where
 
@@ -250,6 +251,16 @@ pvcollect c nframes f from to z =
       e = zipWith3 f ms ps is
       mps = uncurry packFFTSpec (unzip e)
   in  packFFT c nframes from to z mps
+
+-- | Zero indexed audio input buses.
+soundIn :: UGen -> UGen
+soundIn u =
+  G (do u' <- unG u
+        case u' of
+          MCEV n (MCEU (NConstant i):cs)
+            | cs == map (MCEU . NConstant) [i+1..i+fromIntegral (n-1)]
+            -> unG (in' n AR (numOutputBuses + constant i))
+          _ -> unG (in' 1 AR (numOutputBuses + return u')))
 
 -- | Unpack an FFT chain into separate demand-rate FFT bin streams.
 --

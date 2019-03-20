@@ -392,6 +392,17 @@ handwritten_graph =
             in  S.mrg [S.out 0 o, S.sendReply s0 0 "/send-reply" [s0,s1]]
       same_graph j0 h0
 
+    describe "soundIn" $ do
+      let j0 = out 0 (soundIn 0)
+          h0 = S.out 0 (S.soundIn 0)
+      same_graph j0 h0
+      let j1 = out 0 (soundIn (mce2 0 1))
+          h1 = S.out 0 (S.soundIn (S.mce2 0 1))
+      same_graph j1 h1
+      let j2 = out 0 (soundIn (mce2 2 4))
+          h2 = S.out 0 (S.soundIn (S.mce2 2 4))
+      same_graph j2 h2
+
     describe "unpackFFT" $ do
       let j0 = do
             b <- share (localBuf 1024 1)
