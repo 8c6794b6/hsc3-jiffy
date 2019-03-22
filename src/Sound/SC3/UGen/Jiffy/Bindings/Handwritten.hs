@@ -32,7 +32,9 @@ module Sound.SC3.UGen.Jiffy.Bindings.Handwritten
   , pmOsc
   , pvcollect
   , unpackFFT
+  , silent
   , soundIn
+  , splay
   , tap
   , tChoose
   , tWChoose
@@ -291,6 +293,14 @@ pvcollect c nframes f from to z =
       mps = uncurry packFFTSpec (unzip e)
   in  packFFT c nframes from to z mps
 
+-- | Output silence.
+silent :: Int -> UGen
+silent n =
+  let sig = dc AR 0
+  in  case n of
+        1 -> sig
+        _ -> dup n sig
+
 -- | Zero indexed audio input buses.
 soundIn :: UGen -> UGen
 soundIn u =
@@ -300,6 +310,20 @@ soundIn u =
             | cs == map (MCEU . NConstant) [i+1..i+fromIntegral (n-1)]
             -> unG (in' n AR (numOutputBuses + constant i))
           _ -> unG (in' 1 AR (numOutputBuses + return u')))
+
+-- | Spreads an array of channels across the streo field.
+splay :: UGen -> UGen -> UGen -> UGen -> Bool -> UGen
+splay i s l c lc =
+  G (do i' <- unG i
+        let n = max 2 (mce_degree i')
+            m = n - 1
+            f = constant . (+ (-1.0)) . (* (2/fromIntegral m)) .
+                fromIntegral
+            p = map f [0..m]
+            a = if lc
+                   then sqrt (1/fromIntegral n)
+                   else 1
+        unG (mix (pan2 i (mce p * s + c) a) * l))
 
 -- | Single tap into a delayline.
 tap :: Int -> UGen -> UGen -> UGen

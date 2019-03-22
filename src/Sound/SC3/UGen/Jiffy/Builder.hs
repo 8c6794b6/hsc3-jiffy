@@ -931,7 +931,9 @@ mce gs =
               mce_nid <- unG g
               return (len+1,mce_nid:acc)
         (len,xs) <- foldlM f (0,[]) gs
-        return (MCEV len (reverse xs)))
+        case xs of
+          [x] -> return x
+          _   -> return (MCEV len (reverse xs)))
 {-# INLINABLE mce #-}
 {-# SPECIALIZE mce :: [UGen] -> UGen #-}
 

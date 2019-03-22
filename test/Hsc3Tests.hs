@@ -466,6 +466,24 @@ handwritten_graph =
             in  S.mrg [S.out 0 o, S.sendReply s0 0 "/send-reply" [s0,s1]]
       same_graph j0 h0
 
+    describe "silent" $ do
+      let j0 = out 0 (silent 1)
+          h0 = S.out 0 (S.silent 1)
+          j1 = out 0 (silent 8)
+          h1 = S.out 0 (S.silent 8)
+      same_graph j0 h0
+      same_graph j1 h1
+
+    describe "splay" $ do
+      let j0 = out 0 (splay (sinOsc AR (mce2 440 880) 0) 1 1 0 True)
+          h0 = let s0 = S.sinOsc AR 440 0
+                   s1 = S.sinOsc AR 880 0
+                   r = sqrt (1/2)
+                   p0 = S.pan2 s0 (-1) r
+                   p1 = S.pan2 s1 1 r
+               in  S.out 0 (p0 + p1)
+      same_graph j0 h0
+
     describe "soundIn" $ do
       let j0 = out 0 (soundIn 0)
           h0 = S.out 0 (S.soundIn 0)
