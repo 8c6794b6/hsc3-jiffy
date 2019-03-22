@@ -288,9 +288,17 @@ handwritten_graph =
             in  S.out 0 (o*0.1)
       same_graph j0 h0
 
-    describe "fftTrigger" $ do
-      let j0 = out 0 (fftTrigger (localBuf 1 512) 0.5 0)
-          h0 = S.out 0 (S.fftTrigger (S.localBuf 'a' 1 512) 0.5 0)
+    describe "changed" $ do
+      let j0 = do
+            n <- share (lfdNoise0 KR 1)
+            let s = sinOsc AR (exprange 110 3300 n) 0
+                e = decay (changed n 0.01) 1
+            out 0 (s*e*0.3)
+          h0 =
+            let n = S.lfdNoise0 'a' KR 1
+                s = S.sinOsc AR (S.exprange 110 3300 n) 0
+                e = S.decay (S.changed n 0.01) 1
+            in  S.out 0 (s*e*0.3)
       same_graph j0 h0
 
     describe "dinf" $ do
@@ -315,6 +323,11 @@ handwritten_graph =
     describe "exprange" $ do
       let j0 = out 0 (exprange 0.1 8 (sinOsc KR 4 0))
           h0 = S.out 0 (S.exprange 0.1 8 (S.sinOsc KR 4 0))
+      same_graph j0 h0
+
+    describe "fftTrigger" $ do
+      let j0 = out 0 (fftTrigger (localBuf 1 512) 0.5 0)
+          h0 = S.out 0 (S.fftTrigger (S.localBuf 'a' 1 512) 0.5 0)
       same_graph j0 h0
 
     describe "klangSpec" $ do
@@ -408,6 +421,40 @@ handwritten_graph =
       let j2 = out 0 (soundIn (mce2 2 4))
           h2 = S.out 0 (S.soundIn (S.mce2 2 4))
       same_graph j2 h2
+
+    describe "tap" $ do
+      let j0 = out 0 (tap 1 0 (mce2 0.5 0.8))
+          h0 = S.out 0 (S.tap 1 0 (S.mce2 0.5 0.8))
+      same_graph j0 h0
+
+    describe "tChoose" $ do
+      let j0 = let a = [sinOsc AR 440 0
+                       ,saw AR 440
+                       ,pulse AR 440 0.5]
+                   o = tChoose (dust KR 2) a
+               in  out 0 o
+          h0 = let a = [S.sinOsc AR 440 0
+                       ,S.saw AR 440
+                       ,S.pulse AR 440 0.5]
+                   o = S.tChoose 'a' (S.dust 'b' KR 2) (S.mce a)
+               in  S.out 0 o
+      same_graph j0 h0
+
+    describe "tWChoose" $ do
+      let j0 = let a = [sinOsc AR 440 0
+                       ,saw AR 220
+                       ,pulse AR 110 0.1]
+                   w = [0.5,0.35,0.15]
+                   o = tWChoose (impulse KR 4 0) a w 0
+               in  out 0 o
+          h0 = let a = [S.sinOsc AR 440 0
+                       ,S.saw AR 220
+                       ,S.pulse AR 110 0.1]
+                   w = [0.5,0.35,0.15]
+                   t = S.impulse KR 4 0
+                   o = S.tWChoose 'a' t (S.mce a) (S.mce w) 0
+               in  S.out 0 o
+      same_graph j0 h0
 
     describe "unpackFFT" $ do
       let j0 = do

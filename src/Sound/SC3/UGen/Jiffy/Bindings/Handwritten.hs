@@ -16,6 +16,7 @@ module Sound.SC3.UGen.Jiffy.Bindings.Handwritten
 
     -- * Composite UGen functions
   , asLocalBuf
+  , changed
   , dup
   , exprange
   , fft'
@@ -28,6 +29,9 @@ module Sound.SC3.UGen.Jiffy.Bindings.Handwritten
   , pvcollect
   , unpackFFT
   , soundIn
+  , tap
+  , tChoose
+  , tWChoose
   , wrapOut
   ) where
 
@@ -39,7 +43,10 @@ import Data.List (transpose)
 import Sound.OSC (sendMessage)
 
 -- hsc3
-import Sound.SC3 (Audible(..), Rate(..), Sample)
+import Sound.SC3
+  ( Audible(..), DoneAction(..), Loop(..), Rate(..), Sample
+  , (>**) )
+-- import Sound.SC3.Common.Math ((>**))
 import Sound.SC3.Server.Command.Generic (withCM)
 import Sound.SC3.Server.Command.Plain (d_recv_bytes, s_new)
 
@@ -178,6 +185,10 @@ asLocalBuf xs = do
   return b
 {-# SPECIALIZE asLocalBuf :: [UGen] -> UGen #-}
 
+-- | Triggers when a value changes
+changed :: UGen -> UGen -> UGen
+changed inp thres = abs (hpz1 inp) >** thres
+
 -- | Duplicate given 'UGen' for given number.
 dup :: Int -> UGen -> UGen
 dup n = mce . (replicate n)
@@ -261,6 +272,25 @@ soundIn u =
             | cs == map (MCEU . NConstant) [i+1..i+fromIntegral (n-1)]
             -> unG (in' n AR (numOutputBuses + constant i))
           _ -> unG (in' 1 AR (numOutputBuses + return u')))
+
+-- | Single tap into a delayline.
+tap :: Int -> UGen -> UGen -> UGen
+tap numChannels bufnum delaytime =
+  let n = delaytime * negate sampleRate
+  in  playBuf numChannels AR bufnum 1 0 n Loop DoNothing
+
+-- | Randomly select one of several inputs on trigger.
+tChoose :: Foldable t => UGen -> t UGen -> UGen
+tChoose trg arr = select (tiRand 0 (constant n) trg) (mce arr)
+  where n = fromIntegral ((length arr) - 1)
+{-# SPECIALIZE tChoose :: UGen -> [UGen] -> UGen #-}
+
+-- | Randomly select one of several inputs on trigger (weighted).
+tWChoose :: (Foldable t1, Foldable t2)
+          => UGen -> t1 UGen -> t2 UGen -> UGen -> UGen
+tWChoose trg arr weights nrm =
+  select (tWindex trg nrm (mce weights)) (mce arr)
+{-# SPECIALIZE tWChoose :: UGen -> [UGen] -> [UGen] -> UGen -> UGen#-}
 
 -- | Unpack an FFT chain into separate demand-rate FFT bin streams.
 --
