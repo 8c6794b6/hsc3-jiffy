@@ -407,6 +407,21 @@ handwritten_graph =
                in  S.poll t l 0 (S.label "polling ...")
       same_graph j0 h0
 
+    describe "pmOsc" $ do
+      let j0 = let cf = rand 0 2000
+                   mf = rand 0 800
+                   mv = rand 0 12
+                   l = rand (-1) 1
+                   pm = line KR 0 mv 8 DoNothing
+               in  out 0 (linPan2 (pmOsc AR cf mf pm 0) l 0.05)
+          h0 = let cf = S.rand 'a' 0 2000
+                   mf = S.rand 'b' 0 800
+                   mv = S.rand 'c' 0 12
+                   l = S.rand 'd' (-1) 1
+                   pm = S.line KR 0 mv 8 DoNothing
+               in  S.out 0 (S.linPan2 (S.pmOsc AR cf mf pm 0) l 0.05)
+      same_graph j0 h0
+
     describe "pv_HainsworthFoote" $ do
       let j0 = do
             s <- share (lfSaw AR (lfNoise0 KR 1 * 90 + 400) 0 * 0.5)

@@ -29,6 +29,7 @@ module Sound.SC3.UGen.Jiffy.Bindings.Handwritten
   , mix
   , onsets'
   , packFFTSpec
+  , pmOsc
   , pvcollect
   , unpackFFT
   , soundIn
@@ -52,7 +53,6 @@ import Sound.OSC (sendMessage)
 import Sound.SC3
   ( Audible(..), DoneAction(..), Loop(..), Rate(..), Sample
   , (>**), onsetType )
--- import Sound.SC3.Common.Math ((>**))
 import Sound.SC3.Server.Command.Generic (withCM)
 import Sound.SC3.Server.Command.Plain (d_recv_bytes, s_new)
 
@@ -270,6 +270,10 @@ onsets' chain thres otype = onsets chain thres otype 1 0.1 10 11 1 0
 -- | Format magnitude and phase data data as required for 'packFFT'.
 packFFTSpec :: [UGen] -> [UGen] -> UGen
 packFFTSpec mags phases = mce (interleave mags phases)
+
+-- | Phase modulation oscillator pair.
+pmOsc :: Rate -> UGen -> UGen -> UGen -> UGen -> UGen
+pmOsc r cf mf pm mp = sinOsc r cf (sinOsc r mf mp * pm)
 
 -- | Apply function /f/ to each bin of an @FFT@ chain, /f/ receives
 -- magnitude, phase, and index and returns a @(magnitude, phase)@.
