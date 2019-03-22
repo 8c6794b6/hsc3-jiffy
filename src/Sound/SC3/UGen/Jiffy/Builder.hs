@@ -12,10 +12,10 @@
 module Sound.SC3.UGen.Jiffy.Builder
   ( UGen
   , runUGen
+  , share
   , ugen_to_graph
   , ugen_to_graphdef
 
-  , share
   , constant
   , control
   , tr_control
@@ -41,7 +41,6 @@ module Sound.SC3.UGen.Jiffy.Builder
   , spec0
 
   , envelope_to_ugen
-  , isSink
 
   , G(..)
   , runG
@@ -946,14 +945,3 @@ envelope_to_ugen e =
     Just as -> mce as
     Nothing -> error "envelope_to_ugen: bad Envelope"
 {-# INLINABLE envelope_to_ugen #-}
-
-isSink :: UGen -> G (Bool, MCE NodeId)
-isSink ug =
-  G (do mce_nid0 <- unG ug
-        dag <- ask
-        let f acc nid = do
-              g <- lookup_g_node nid dag
-              return (acc || null (g_node_u_outputs g))
-        is_sink <- foldlM f False mce_nid0
-        return (is_sink, mce_nid0))
-{-# INLINABLE isSink #-}

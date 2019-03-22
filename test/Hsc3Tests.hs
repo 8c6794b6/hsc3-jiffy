@@ -320,6 +320,33 @@ handwritten_graph =
                in  S.out 0 (S.sinOsc AR f 0 * 0.1)
       same_graph j0 h0
 
+    describe "dynKlang" $ do
+      let j0 = let f = [800 + sinOsc KR 2 0 * 13
+                       ,1000 + sinOsc KR 3 0 * 24
+                       ,1200 + sinOsc KR 4.2 0 * 12]
+                   a = replicate 3 0.3
+                   p = replicate 3 pi
+               in  out 0 (dynKlang AR 1 0 (klangSpec f a p) * 0.1)
+          h0 = let f = [800 + S.sinOsc KR 2 0 * 13
+                       ,1000 + S.sinOsc KR 3 0 * 24
+                       ,1200 + S.sinOsc KR 4.2 0 * 12]
+                   a = replicate 3 0.3
+                   p = replicate 3 pi
+               in  S.out 0 (S.dynKlang AR 1 0 (S.klangSpec f a p) * 0.1)
+      same_graph j0 h0
+
+    describe "dynKlank" $ do
+      let j0 = let spec = klankSpec fs [1,1,1] [1,1,1]
+                   fs = replicate 3 (exprange 200 1700 (lfdNoise3 KR 0.5))
+                   t = impulse AR 2 0 * 0.1
+               in  out 0 (dynKlank t 1 0 1 spec)
+          h0 = let spec = S.klankSpec fs [1,1,1] [1,1,1]
+                   nz i = S.exprange 200 1700 (S.lfdNoise3 i KR 0.5)
+                   fs = map nz "abc"
+                   t = S.impulse AR 2 0 * 0.1
+               in  S.out 0 (S.dynKlank t 1 0 1 spec)
+      same_graph j0 h0
+
     describe "exprange" $ do
       let j0 = out 0 (exprange 0.1 8 (sinOsc KR 4 0))
           h0 = S.out 0 (S.exprange 0.1 8 (S.sinOsc KR 4 0))

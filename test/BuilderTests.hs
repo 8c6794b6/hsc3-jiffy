@@ -378,11 +378,6 @@ auxiliary_tests = do
     it "should_call_error" $
       runUGen (MonadFail.fail "xxx") `shouldThrow` anyErrorCall
 #endif
-  describe "isSink" $ do
-    it "should_be_a_sink" $
-       fst (runUGen (isSink (out 0 (dc AR 1)))) `shouldBe` True
-    it "should_not_be_a_sink" $
-       fst (runUGen (isSink (sinOsc AR 440 0))) `shouldBe` False
 
 builderTests :: Spec
 builderTests =

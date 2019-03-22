@@ -18,6 +18,8 @@ module Sound.SC3.UGen.Jiffy.Bindings.Handwritten
   , asLocalBuf
   , changed
   , dup
+  , dynKlang
+  , dynKlank
   , exprange
   , fft'
   , ifft'
@@ -40,7 +42,7 @@ module Sound.SC3.UGen.Jiffy.Bindings.Handwritten
   ) where
 
 -- base
-import Data.Foldable (Foldable(..))
+import Data.Foldable (Foldable(..), foldlM)
 import Data.List (transpose)
 
 -- hosc
@@ -197,6 +199,20 @@ changed inp thres = abs (hpz1 inp) >** thres
 dup :: Int -> UGen -> UGen
 dup n = mce . (replicate n)
 {-# INLINABLE dup #-}
+
+-- | Dynamic klang, dynamic sine oscillator bank
+dynKlang :: Rate -> UGen -> UGen -> UGen -> UGen
+dynKlang rt fs fo spec =
+  let gen (f:a:p:rest) = sinOsc rt (f*fs+fo) p * a + gen rest
+      gen _ = 0
+  in  mceChannels spec >>= gen
+
+-- | Dynamic klank, set of non-fixed resonating filters.
+dynKlank :: UGen -> UGen -> UGen -> UGen -> UGen -> UGen
+dynKlank i fs fo ds spec =
+  let gen (f:a:d:rest) = ringz i (f*fs+fo) (d*ds) * a + gen rest
+      gen _ = 0
+  in  mceChannels spec >>= gen
 
 -- | 'linExp' with input range of @(-1,1)@.
 exprange :: UGen -> UGen -> UGen -> UGen
@@ -371,3 +387,15 @@ interleave = go
     go []     ys = ys
     go (x:xs) ys = x : go ys xs
 {-# INLINE interleave #-}
+
+-- | Returns 'True' and node id if the node is sink node.
+isSink :: UGen -> G (Bool, MCE NodeId)
+isSink ug =
+  G (do mce_nid0 <- unG ug
+        dag <- ask
+        let f acc nid = do
+              g <- lookup_g_node nid dag
+              return (acc || null (g_node_u_outputs g))
+        is_sink <- foldlM f False mce_nid0
+        return (is_sink, mce_nid0))
+{-# INLINABLE isSink #-}
