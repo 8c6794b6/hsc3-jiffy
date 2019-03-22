@@ -71,7 +71,9 @@ test-suite spec
   other-modules:       BuilderTests
                        ConvertTests
                        Hsc3Tests
+                       AudibleTests
   build-depends:       base >= 4.10 && < 5
+                     , hosc
                      , hspec
                      , hsc3
                      , hsc3-jiffy

@@ -5,6 +5,7 @@ module Main where
 import Test.Hspec
 
 -- Internal
+import AudibleTests
 import BuilderTests
 import ConvertTests
 import Hsc3Tests
@@ -13,4 +14,5 @@ main :: IO ()
 main =
   hspec (do builderTests
             convertTests
-            hsc3Tests)
+            hsc3Tests
+            audibleTests)

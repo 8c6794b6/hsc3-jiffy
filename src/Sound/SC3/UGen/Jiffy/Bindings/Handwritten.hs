@@ -71,9 +71,10 @@ import Sound.SC3.UGen.Jiffy.Builder.GraphM
 --
 -- ------------------------------------------------------------------------
 
--- | 'Audible' instance for 'UGen' is defined here, since the 'out'
+-- 'Audible' instance for 'UGen' is defined here, since the 'out'
 -- UGen, whiich is generated from template haskell code, is referred
 -- from definition body via 'wrapOut'.
+
 instance Audible UGen where
   play_at (nid,aa,gid,params) ug =
     let gd = ugen_to_graphdef "anon" (wrapOut ug)
