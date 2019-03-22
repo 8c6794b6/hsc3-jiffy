@@ -119,7 +119,9 @@ printOne ca ua i ug@(_name,rate,inputs,_,_special) =
         "Control"      | Just p <- mb_port -> pControl n p
         "TrigControl"  | Just p <- mb_port -> pControl n p
         "AudioControl" | Just p <- mb_port -> pControl n p
-        _              -> B.byteString n
+        _              | Just p <- mb_port, p /= 0
+                       -> B.byteString n <> "[" <> B.intDec p <> "]"
+                       | otherwise -> B.byteString n
     pControl n p = B.byteString n <> "[" <> B.intDec p <> "]"
     pRate r =
       case toEnum r of
