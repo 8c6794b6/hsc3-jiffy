@@ -25,6 +25,7 @@ module Sound.SC3.UGen.Jiffy.Bindings.Handwritten
   , klankSpec
   , linLin
   , mix
+  , onsets'
   , packFFTSpec
   , pvcollect
   , unpackFFT
@@ -33,6 +34,9 @@ module Sound.SC3.UGen.Jiffy.Bindings.Handwritten
   , tChoose
   , tWChoose
   , wrapOut
+
+    -- * Re-export
+  , onsetType
   ) where
 
 -- base
@@ -45,7 +49,7 @@ import Sound.OSC (sendMessage)
 -- hsc3
 import Sound.SC3
   ( Audible(..), DoneAction(..), Loop(..), Rate(..), Sample
-  , (>**) )
+  , (>**), onsetType )
 -- import Sound.SC3.Common.Math ((>**))
 import Sound.SC3.Server.Command.Generic (withCM)
 import Sound.SC3.Server.Command.Plain (d_recv_bytes, s_new)
@@ -242,6 +246,10 @@ mix g = do
       in  f nids
     MCEU _    -> return mce_nid
 {-# INLINABLE mix #-}
+
+-- | Onset detector with default values for minor parameters.
+onsets' :: UGen -> UGen -> UGen -> UGen
+onsets' chain thres otype = onsets chain thres otype 1 0.1 10 11 1 0
 
 -- | Format magnitude and phase data data as required for 'packFFT'.
 packFFTSpec :: [UGen] -> [UGen] -> UGen

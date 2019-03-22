@@ -349,6 +349,19 @@ handwritten_graph =
           h0 = S.out 0 (S.linLin (S.sinOsc AR 440 0) (-1) 1 0.5 2)
       same_graph j0 h0
 
+    describe "onsets'" $ do
+      let j0 = let i = soundIn 0
+                   c = fft' (localBuf 1 512) i
+                   o = onsets' c 0.5 (onsetType "rcomplex")
+                   s = sinOsc AR 440 0 * decay o 1 * 0.2
+               in  out 0 s
+          h0 = let i = S.soundIn 0
+                   c = S.fft' (S.localBuf 'a' 1 512) i
+                   o = S.onsets' c 0.5 (onsetType "rcomplex")
+                   s = S.sinOsc AR 440 0 * S.decay o 1 * 0.2
+               in  S.out 0 s
+      same_graph j0 h0
+
     describe "packFFT" $ do
       let j0 =
             let s = packFFTSpec [1,1,1,1] [0,0,0,0]
