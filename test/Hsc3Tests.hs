@@ -110,6 +110,12 @@ same_blob j h =
              (graph_to_graphdef "tmp" (SG.ugen_to_graph h))
   in  it "is_same_blob_data" (gj `shouldBe` gh)
 
+same_u_graph :: UGen -> S.UGen -> Spec
+same_u_graph j h = do
+  let gj = ugen_to_graph j
+      gh = SG.ugen_to_graph h
+  it "is_same_U_Graph" (gj `shouldSatisfy` eq_U_Graph gh)
+
 same_graph :: UGen -> S.UGen -> Spec
 same_graph j h = do
   let gj = ugen_to_graph j
@@ -391,6 +397,15 @@ handwritten_graph =
       let j0 = out 0 (linLin (sinOsc AR 440 0) (-1) 1 0.5 2)
           h0 = S.out 0 (S.linLin (S.sinOsc AR 440 0) (-1) 1 0.5 2)
       same_graph j0 h0
+
+    describe "makeFadeEnv" $ do
+      -- Order of control names differes in Graphdefs, so using
+      -- "same_u_graph" test.
+      let j0 = let e = makeFadeEnv 0.2
+               in  out 0 (sinOsc AR 440 0 * e * 0.2)
+          h0 = let e = S.makeFadeEnv 0.2
+               in  S.out 0 (S.sinOsc AR 440 0 * e * 0.2)
+      same_u_graph j0 h0
 
     describe "onsets'" $ do
       let j0 = let i = soundIn 0

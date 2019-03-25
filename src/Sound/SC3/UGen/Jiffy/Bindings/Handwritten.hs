@@ -26,6 +26,7 @@ module Sound.SC3.UGen.Jiffy.Bindings.Handwritten
   , klangSpec
   , klankSpec
   , linLin
+  , makeFadeEnv
   , mix
   , onsets'
   , packFFTSpec
@@ -53,8 +54,8 @@ import Sound.OSC (sendMessage)
 
 -- hsc3
 import Sound.SC3
-  ( Audible(..), DoneAction(..), Loop(..), Rate(..), Sample
-  , (>**), onsetType )
+  ( Audible(..), DoneAction(..), Envelope(..), Envelope_Curve(..)
+  , Loop(..), Rate(..), Sample, (>**), (<=**), onsetType )
 import Sound.SC3.Server.Command.Generic (withCM)
 import Sound.SC3.Server.Command.Plain (d_recv_bytes, s_new)
 
@@ -246,6 +247,15 @@ linLin i slo shi dlo dhi =
   let scale = (dhi - dlo) / (shi - slo)
       offset = dlo - (scale * slo)
   in  i * scale + offset
+
+-- | Generate an 'envGen' with @fadeTime@ and @gate@ controls.
+makeFadeEnv :: Double -> UGen
+makeFadeEnv fadeTime =
+  let dt = control KR "fadeTime" fadeTime
+      gate_ = control KR "gate" 1
+      sv = dt <=** 0
+      env = Envelope [sv,1,0] [1,1] [EnvLin,EnvLin] (Just 1) Nothing 0
+  in  envGen KR gate_ 1 0 dt RemoveSynth env
 
 -- | Collapse possible mce by summing.
 mix :: UGen -> UGen
