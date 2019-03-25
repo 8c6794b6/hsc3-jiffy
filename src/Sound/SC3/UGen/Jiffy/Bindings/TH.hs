@@ -129,8 +129,9 @@ ignoredUGens =
 impureUGens :: [String]
 impureUGens =
   -- XXX: Any more ...?
-  [ "BufWr", "ClearBuf", "LocalOut", "OffsetOut", "Out", "Poll"
-  , "RandID", "RandSeed", "ReplaceOut", "SendTrig", "SetBuf", "XOut" ]
+  [ "BufWr", "ClearBuf", "Free", "FreeSelf", "LocalOut", "OffsetOut"
+  , "Out", "Pause", "Poll", "RandID", "RandSeed", "ReplaceOut"
+  , "SendTrig", "SetBuf", "XOut" ]
 
 --
 
