@@ -372,7 +372,7 @@ wrapOut ug = do
   (sink, mce_nid) <- isSink ug
   if sink
      then return mce_nid
-     else out 0 (return mce_nid)
+     else out (control IR "out" 0) (return mce_nid)
 {-# INLINE wrapOut #-}
 
 

@@ -572,7 +572,7 @@ handwritten_graph =
     describe "wrapOut" $ do
       let j0 = sinOsc AR 440 0
           j1 = wrapOut (wrapOut (wrapOut j0))
-          h1 = S.out 0 (S.sinOsc AR 440 0)
+          h1 = S.out (S.control IR "out" 0) (S.sinOsc AR 440 0)
       same_graph j1 h1
 
 --
