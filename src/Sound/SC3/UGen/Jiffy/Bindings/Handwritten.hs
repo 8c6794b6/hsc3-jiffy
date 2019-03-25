@@ -24,6 +24,7 @@ module Sound.SC3.UGen.Jiffy.Bindings.Handwritten
   , dynKlank
   , exprange
   , fft'
+  , hilbertFIR
   , ifft'
   , klangSpec
   , klankSpec
@@ -248,6 +249,14 @@ exprange lo hi s = linExp s (-1) 1 lo hi
 -- (0), active status (1) and wndow size (0).
 fft' :: UGen -> UGen -> UGen
 fft' buf i = fft buf i 0.5 0 1 0
+
+hilbertFIR :: UGen -> UGen -> UGen
+hilbertFIR s b = do
+  b' <- share b
+  let c0 = fft' b' s
+      c1 = pv_PhaseShift90 c0
+      delay = bufDur KR b'
+  mce2 (delayN s delay delay) (ifft' c1)
 
 -- | Variant 'ifft' with default value for window type.
 ifft' :: UGen -> UGen

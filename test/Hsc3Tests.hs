@@ -396,6 +396,17 @@ handwritten_graph =
           h0 = S.out 0 (S.fftTrigger (S.localBuf 'a' 1 512) 0.5 0)
       same_graph j0 h0
 
+    describe "hilbertFIR" $ do
+      let j0 = let i = sinOsc AR 100 0
+                   b = localBuf 1 2048
+                   o = hilbertFIR i b
+               in  out 0 o
+          h0 = let i = S.sinOsc AR 100 0
+                   b = S.localBuf 'a' 1 2048
+                   o = S.hilbertFIR i b
+               in  S.out 0 o
+      same_graph j0 h0
+
     describe "klangSpec" $ do
       let j0 = let a = klangSpec [440,880,1320] [0.5,0.4,0.3] [0,0,0]
                in  out 0 (klang AR 1 0 a * 0.2)
