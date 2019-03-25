@@ -19,10 +19,6 @@ module Sound.SC3.UGen.Jiffy.Builder
   , constant
   , control
   , tr_control
-  , mce
-  , mce2
-  , mceChannel
-  , mceChannels
 
   , MkUGen
   , mkSimpleUGen
@@ -39,6 +35,12 @@ module Sound.SC3.UGen.Jiffy.Builder
   , noId
   , hashUId
   , spec0
+
+  , mce
+  , mce2
+  , mceChannel
+  , mceChannels
+  , mceEdit
 
   , envelope_to_ugen
 
@@ -904,27 +906,11 @@ undemand xs =
 
 -- ------------------------------------------------------------------------
 --
--- Auxiliary UGen related functions
+-- Multichannel expansion
 --
 -- ------------------------------------------------------------------------
 
-mceChannel :: Int -> UGen -> UGen
-mceChannel n g =
-  G (do nid <- unG g
-        case nid of
-          MCEV m xs | n < m  -> return (xs !! n)
-          MCEU _    | n == 0 -> return nid
-          _ -> error "mceChannel: index out of range")
-{-# INLINABLE mceChannel #-}
-
-mceChannels :: UGen -> G [UGen]
-mceChannels g =
-  G (do mce_nid <- unG g
-        case mce_nid of
-          MCEV _ xs -> pure (map pure xs)
-          MCEU _    -> pure [pure mce_nid])
-{-# INLINABLE mceChannels #-}
-
+-- | Multichannel expansion node constructor
 mce :: Foldable t => t UGen -> UGen
 mce gs =
   G (do let f (!len,acc) g = do
@@ -937,10 +923,49 @@ mce gs =
 {-# INLINABLE mce #-}
 {-# SPECIALIZE mce :: [UGen] -> UGen #-}
 
+-- | Multiple channel expansion for two inputs.
 mce2 :: UGen -> UGen -> UGen
 mce2 a b = G ((\x y -> MCEV 2 [x,y]) <$> unG a <*> unG b)
 {-# INLINE mce2 #-}
 
+-- | Obtain indexed channel at MCE.
+mceChannel :: Int -> UGen -> UGen
+mceChannel n g =
+  G (do nid <- unG g
+        case nid of
+          MCEV m xs | n < m  -> return (xs !! n)
+          MCEU _    | n == 0 -> return nid
+          _ -> error "mceChannel: index out of range")
+{-# INLINABLE mceChannel #-}
+
+-- | Output channels of UGen as a list. Unlike the function defined in
+-- hsc3 package, this function lives inside 'G' monad.
+mceChannels :: UGen -> G [UGen]
+mceChannels g =
+  G (do mce_nid <- unG g
+        case mce_nid of
+          MCEV _ xs -> pure (map pure xs)
+          MCEU _    -> pure [pure mce_nid])
+{-# INLINABLE mceChannels #-}
+
+-- | Apply UGen list operation on MCE contents.
+mceEdit :: ([UGen] -> [UGen]) -> UGen -> UGen
+mceEdit f g =
+  G (do mce_nid <- unG g
+        let ms = f (map pure (mce_list mce_nid))
+        case ms of
+          [x] -> unG x
+          _   -> unG (mce ms))
+{-# INLINE mceEdit #-}
+
+
+-- ------------------------------------------------------------------------
+--
+-- Auxiliary
+--
+-- ------------------------------------------------------------------------
+
+-- | Unwrap 'Envelope' to 'UGen' with 'envelope_sc3_array'.
 envelope_to_ugen :: Envelope UGen -> UGen
 envelope_to_ugen e =
   case envelope_sc3_array e of

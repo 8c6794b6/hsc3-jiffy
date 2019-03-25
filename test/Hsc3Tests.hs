@@ -134,38 +134,54 @@ simple_graph = describe "simple" $ do
 
 mix_mce_graph :: Spec
 mix_mce_graph = do
-  let j0 = let f1 = control KR "f1" 0
-           in out 0 (pan2 (mix (sinOsc AR (mce [f1,0]) 0)) 0 0)
-      h0 = let f1 = S.control KR "f1" 0
-           in  S.out 0 (S.pan2 (S.mix (S.sinOsc AR (S.mce [f1,0]) 0)) 0 0)
-  describe "mix_mce" $ same_graph_and_blob j0 h0
-  let j1 = do [s0,s1] <- mceChannels (sinOsc AR (mce2 440 550) 0)
-              let n = lfNoise0 KR 4
-              out 0 (balance2 s0 s1 n 0.3)
-      h1 = let [s0,s1] = S.mceChannels (S.sinOsc AR (S.mce2 440 550) 0)
-               n = S.lfNoise0 'a' KR 4
-           in S.out 0 (S.balance2 s0 s1 n 0.3)
-  describe "mceChannels" $ same_graph j1 h1
-  let j2 = let i = in' 2 AR numOutputBuses
-               c = mceChannel
-               x = mouseX KR 0 1 Linear 0.1
-               y = mouseY KR 0 1 Linear 0.1
-           in  out 0 (freeVerb2 (c 0 i) (c 1 i) y x 0.5)
-      h2 = let i = S.in' 2 AR S.numOutputBuses
-               c = S.mceChannel
-               x = S.mouseX KR 0 1 Linear 0.1
-               y = S.mouseY KR 0 1 Linear 0.1
-           in  S.out 0 (S.freeVerb2 (c 0 i) (c 1 i) y x 0.5)
-  describe "mceChannel" $ same_graph j2 h2
-  let j3 = let p1 = mce [440,660,990,1320]
-               p2 = mce [0,1]
-               o = sinOsc AR p1 p2
-           in  out 0 (mix o * 0.2)
-      h3 = let p1 = S.mce [440,660,990,1320]
-               p2 = S.mce [0,1]
-               o = S.sinOsc AR p1 p2
-           in  S.out 0 (S.mix o * 0.2)
-  describe "mceExtend" $ same_graph j3 h3
+  describe "mix_mce" $ do
+    let j0 = let f1 = control KR "f1" 0
+             in  out 0 (pan2 (mix (sinOsc AR (mce [f1,0]) 0)) 0 0)
+        h0 = let f1 = S.control KR "f1" 0
+             in  S.out 0 (S.pan2 (S.mix (S.sinOsc AR (S.mce [f1,0]) 0)) 0 0)
+    same_graph_and_blob j0 h0
+
+  describe "mceChannels" $ do
+    let j0 = do [s0,s1] <- mceChannels (sinOsc AR (mce2 440 550) 0)
+                let n = lfNoise0 KR 4
+                out 0 (balance2 s0 s1 n 0.3)
+        h0 = let [s0,s1] = S.mceChannels (S.sinOsc AR (S.mce2 440 550) 0)
+                 n = S.lfNoise0 'a' KR 4
+             in S.out 0 (S.balance2 s0 s1 n 0.3)
+    same_graph j0 h0
+
+  describe "mceChannel" $ do
+    let j0 = let i = in' 2 AR numOutputBuses
+                 c = mceChannel
+                 x = mouseX KR 0 1 Linear 0.1
+                 y = mouseY KR 0 1 Linear 0.1
+             in  out 0 (freeVerb2 (c 0 i) (c 1 i) y x 0.5)
+        h0 = let i = S.in' 2 AR S.numOutputBuses
+                 c = S.mceChannel
+                 x = S.mouseX KR 0 1 Linear 0.1
+                 y = S.mouseY KR 0 1 Linear 0.1
+             in  S.out 0 (S.freeVerb2 (c 0 i) (c 1 i) y x 0.5)
+    same_graph j0 h0
+
+  describe "mceEdit" $ do
+    let j0 = let o0 = sinOsc AR (mce2 440 880) 0
+                 o1 = mceEdit reverse o0
+             in  out 0 (o1 * 0.2)
+        h0 = let o0 = S.sinOsc AR (S.mce2 440 880) 0
+                 o1 = S.mceEdit reverse o0
+             in  S.out 0 (o1 * 0.2)
+    same_graph j0 h0
+
+  describe "mceExtend" $ do
+    let j0 = let p1 = mce [440,660,990,1320]
+                 p2 = mce [0,1]
+                 o = sinOsc AR p1 p2
+             in  out 0 (mix o * 0.2)
+        h0 = let p1 = S.mce [440,660,990,1320]
+                 p2 = S.mce [0,1]
+                 o = S.sinOsc AR p1 p2
+             in  S.out 0 (S.mix o * 0.2)
+    same_graph j0 h0
 
 nondet_graph :: Spec
 nondet_graph = describe "nondet" $ do
