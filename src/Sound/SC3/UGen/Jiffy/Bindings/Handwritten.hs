@@ -16,6 +16,8 @@ module Sound.SC3.UGen.Jiffy.Bindings.Handwritten
 
     -- * Composite UGen functions
   , asLocalBuf
+  , bHiPass4
+  , bLowPass4
   , changed
   , dup
   , dynKlang
@@ -56,6 +58,7 @@ import Sound.OSC (sendMessage)
 import Sound.SC3
   ( Audible(..), DoneAction(..), Envelope(..), Envelope_Curve(..)
   , Loop(..), Rate(..), Sample, (>**), (<=**), onsetType )
+import Sound.SC3.Common.Math.Filter.BEQ (bHiPassCoef, bLowPassCoef)
 import Sound.SC3.Server.Command.Generic (withCM)
 import Sound.SC3.Server.Command.Plain (d_recv_bytes, s_new)
 
@@ -194,6 +197,25 @@ asLocalBuf xs = do
   _ <- setBuf (return b) 0 (fromIntegral (length xs)) (mce xs)
   return b
 {-# SPECIALIZE asLocalBuf :: [UGen] -> UGen #-}
+
+-- | 24db/oct rolloff - 4th order resonant Hi Pass Filter.
+bHiPass4 :: UGen -> UGen -> UGen -> UGen
+bHiPass4 i f rq = do
+  i' <- share i
+  f' <- share f
+  rq' <- share rq
+  let (a0,a1,a2,b1,b2) = bHiPassCoef sampleRate f' rq'
+      flt z = sos z a0 a1 a2 b1 b2
+  flt (flt i')
+
+bLowPass4 :: UGen -> UGen -> UGen -> UGen
+bLowPass4 i f rq = do
+  i' <- share i
+  f' <- share f
+  rq' <- share rq
+  let (a0,a1,a2,b1,b2) = bLowPassCoef sampleRate f' rq'
+      flt z = sos z a0 a1 a2 b1 b2
+  flt (flt i')
 
 -- | Triggers when a value changes
 changed :: UGen -> UGen -> UGen

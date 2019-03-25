@@ -116,6 +116,13 @@ same_u_graph j h = do
       gh = SG.ugen_to_graph h
   it "is_same_U_Graph" (gj `shouldSatisfy` eq_U_Graph gh)
 
+same_via_u_graph :: UGen -> Spec
+same_via_u_graph j = do
+  let gj = ugen_to_graph j
+      gj0 = ugen_to_graphdef "g" j
+      gj1 = graph_to_graphdef "g" gj
+  it "is_same_Graphdef_via_U_Graph" (gj0 `shouldBe` gj1)
+
 same_graph :: UGen -> S.UGen -> Spec
 same_graph j h = do
   let gj = ugen_to_graph j
@@ -309,6 +316,16 @@ handwritten_graph =
                 o = S.osc AR (S.clearBuf b) 110 0
             in  S.out 0 (o*0.1)
       same_graph j0 h0
+
+    describe "bHiPass4" $ do
+      let j0 = let o = bHiPass4 (pulse AR 880 0.1) 2000 0.2
+               in  out 0 o
+      same_via_u_graph j0
+
+    describe "bLowPass4" $ do
+      let j0 = let o = bLowPass4 (pulse AR 880 0.1) 2000 0.2
+               in  out 0 o
+      same_via_u_graph j0
 
     describe "changed" $ do
       let j0 = do
