@@ -291,9 +291,9 @@ optimize_simple_constant_tests =
       it "is_equal" (u2g g0 `shouldBe` u2g g1)
       let g2 = out 0 (negate (sinOsc AR 440 0))
           g3 = out 0 ((-1) * sinOsc AR 440 0 * 1)
-      it "is_equal" (u2g g2 `shouldBe` u2g g3)
+      it "is_equal" (u2g g3 `shouldBe` u2g g2)
       let g5 = out 0 (negate (sinOsc AR 440 0) + (whiteNoise AR * 0))
-      it "is_equal" (u2g g2 `shouldBe` u2g g5)
+      it "is_equal" (u2g g5 `shouldBe` u2g g2)
     describe "div" $ do
       let g0 = out 0 (negate (sinOsc AR 440 0))
           g1 = out 0 ((sinOsc AR 440 0 / (-1)) / 1)

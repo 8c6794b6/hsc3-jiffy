@@ -128,10 +128,91 @@ ignoredUGens =
 -- dead code elimination.
 impureUGens :: [String]
 impureUGens =
-  -- XXX: Any more ...?
-  [ "BufWr", "ClearBuf", "Free", "FreeSelf", "LocalOut", "OffsetOut"
-  , "Out", "Pause", "Poll", "RandID", "RandSeed", "ReplaceOut"
-  , "SendTrig", "SetBuf", "XOut" ]
+  [ -- From "BufIO.sc"
+    "BufWr", "RecordBuf", "ScopeOut", "ScopeOut2", "SetBuf", "ClearBuf"
+
+    -- From "Demand.sc"
+  , "Demand", "Dutye", "TDuty"
+
+    -- From "DiskIO.sc"
+  , "DiskOut"
+
+    -- From "EnvGen.sc"
+  , "Done", "FreeSelf", "PauseSelf", "FreeSelfWhenDone"
+  , "PauseSelfWhenDone", "Pause", "Free"
+
+    -- From "Filter.sc"
+  , "DetectSilence"
+
+    -- From "InOut.sc"
+  , "Out",  "ReplaceOut", "OffsetOut", "LocalOut", "XOut"
+
+    -- From "Noise.sc"
+  , "RandID", "RandSeed"
+
+    -- From "Poll.sc"
+  , "Poll"
+
+    -- From "Trig.sc"
+  , "SendTrig", "SendReply"
+  ]
+
+{-
+Note [Pure and impure UGens]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Pure and impure UGens mentioned here means whether unused UGens
+instances in synthdef graph could be removed or not.  Pure UGens could
+be removed, and impure UGens could not.
+
+Currently, template haskell code is using manually selected impure UGen
+names, listed in "impureUGens".  This approach may result in unwanted
+removal if there exist a UGen for side effect purpose which is not in
+the list.
+
+The sclang class hierarchy has an abstract class named "PureUGen", and
+it is known that the sub classes of this UGen could be safely removed
+from synthdef graph when unused. Below is a list of sclang UGen class
+names which are sub class of "PureUGen" and "PureMultiOutUGen", plus
+"BinaryOpUGen" and "UnaryOpUGen":
+
+pureUGens :: [String]
+pureUGens =
+  [ "A2K", "APF", "AllpassC", "AllpassL", "AllpassN", "AmpComp"
+  , "AmpCompA", "BAllPass", "BBandPass", "BBandStop", "BEQSuite"
+  , "BHiPass", "BHiShelf", "BLowPass", "BLowShelf", "BPF", "BPZ2"
+  , "BPeakEQ", "BRF", "BRZ2", "BinaryOpUGen", "COsc", "Changed"
+  , "CircleRamp", "CombC", "CombL", "CombN", "DC", "Decay", "Decay2"
+  , "DegreeToKey", "Delay1", "Delay2", "DelayC", "DelayL", "DelayN"
+  , "DetectIndex", "DetectSilence", "FOS", "Filter", "Formant", "Formlet"
+  , "FreeVerb", "Friction", "GlitchBPF", "GlitchBRF", "GlitchHPF"
+  , "GlitchRHPF", "HPF", "HPZ1", "HPZ2", "Impulse", "Index"
+  , "IndexInBetween", "IndexL", "InsideOut", "Integrator", "K2A", "LFCub"
+  , "LFPar", "LFPulse", "LFSaw", "LFTri", "LPF", "LPZ1", "LPZ2", "Lag"
+  , "Lag2", "Lag2UD", "Lag3", "Lag3UD", "LagUD", "LeakDC", "LinExp"
+  , "MeanTriggered", "Median", "MedianTriggered", "MidEQ", "MoogFF"
+  , "OnePole", "OneZero", "Osc", "OscN", "PureMultiOutUGen", "PureUGen"
+  , "RHPF", "RLPF", "Ramp", "Resonz", "Ringz", "SOS", "Select", "Shaper"
+  , "SinOsc", "SinOscFB", "Slew", "Slope", "SyncSaw", "T2A", "T2K"
+  , "TwoPole", "TwoZero", "UnaryOpUGen", "VOsc", "VOsc3", "VarLag"
+  , "VarSaw", "Vibrato", "WaveLoss", "WrapIndex" ]
+
+The above "pureUGen" names were generated with following sclang code:
+
+(
+var us = UGen.allSubclasses.reject({ |c|
+        not(c.isKindOf(PureUGen.class)) &&
+        not(c.isKindOf(PureMultiOutUGen.class)) &&
+        not(c.class == BinaryOpUGen.class) &&
+        not(c.class == UnaryOpUGen.class);
+}).sort({|a b| a.name < b.name
+}).collect({|c| "\"" ++ c ++ "\""
+});
+
+Post << us << Char.nl;
+)
+
+-}
 
 --
 
