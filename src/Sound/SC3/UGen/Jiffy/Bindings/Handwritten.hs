@@ -209,6 +209,7 @@ bHiPass4 i f rq = do
       flt z = sos z a0 a1 a2 b1 b2
   flt (flt i')
 
+-- | 24db/oct rolloff - 4th order resonant Low Pass Filter.
 bLowPass4 :: UGen -> UGen -> UGen -> UGen
 bLowPass4 i f rq = do
   i' <- share i

@@ -98,7 +98,7 @@ emptyKTable size = KTable <$> H.newSized size
 {-# INLINE emptyKTable #-}
 
 sortPairs :: Ord k => [(k, a)] -> [a]
-sortPairs = snd . unzip . sortBy (compare `on` fst)
+sortPairs = map snd . sortBy (compare `on` fst)
 {-# INLINE sortPairs #-}
 
 acc_constants :: [(a, Sample)] -> (a, G_Node) -> ST s [(a, Sample)]
@@ -108,8 +108,8 @@ acc_constants acc (k,n) = return ((k,g_node_c_value n) : acc)
 update_ktable :: KTable s -> Bool -> [(Int, G_Node)] -> ST s [UGen]
 update_ktable (KTable table) hasLocalBufs controls = do
   let grouped_controls = groupByKType controls
-      insert_controls ugen_index nodes =
-        zipWithM_ (insert_control ugen_index) [0..] nodes
+      insert_controls ugen_index =
+        zipWithM_ (insert_control ugen_index) [0..]
       insert_control ugen_index local_index (nid,_) =
         H.insert table nid (Input ugen_index local_index)
       control_ugen_ids
@@ -362,7 +362,7 @@ optimize_binops dni dag@(DAG _ om _ _ (BiMap _ _ vt)) = go
           case mbn of
             Just node -> replace k nid1 node
             Nothing   -> return ()
-    pre x xs = (x:xs)
+    pre x xs = x : xs
     post x xs = xs ++ [x]
     replace k old_nid new_node = do
       resetDNI dni (nid_value old_nid)
