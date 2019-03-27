@@ -1,7 +1,14 @@
--- | Compatibility functions for hsc3 and hsc3-jiffy
+-- | Compatibility functions for hsc3 and hsc3-jiffy.
+--
+-- Some of the functions exported from "Sound.SC3.Server.Monad" are
+-- using 'Sound.SC3.UGen.Type.UGen' type defined in hsc3 package, which
+-- could not be reused with 'UGen' type defined in hsc3-jiffy
+-- package. This module hides those functions using the hsc3
+-- 'Sound.SC3.UGen.Type.UGen' and re-exports the rest of the functions.
 
 module Sound.SC3.Jiffy.Compat
-  ( Synthdef(..)
+  ( -- * Synthdef related functions
+    Synthdef(..)
   , synthdef
   , defaultSynthdef
   , defaultSampler
@@ -16,6 +23,9 @@ module Sound.SC3.Jiffy.Compat
   , synthstat_wr
   , synthstat_concise
   , d_recv
+
+    -- * Re-exported functions from Sound.SC3.Server.Monad
+  , module Sound.SC3.Server.Monad
   ) where
 
 -- bytestring
@@ -35,6 +45,15 @@ import Sound.SC3.Server.Command.Generic (withCM)
 import Sound.SC3.Server.Transport.Monad (Audible(..))
 import Sound.SC3.UGen.Graph (U_Graph(..), U_Node(..), ug_stat_ln)
 import qualified Sound.SC3.Server.Graphdef as Graphdef
+
+-- hsc3 module to replace
+import Sound.SC3.Server.Monad hiding
+  ( Synthdef(..), synthdef
+  , defaultSynthdef, defaultSampler
+  , synthdefGraph, synthdefParam, synthdef_to_graphdef, synthdefData
+  , synthdefWrite, synthdefWrite_dir
+  , synthstat, synthstat_ln , synthstat_wr , synthstat_concise
+  , d_recv )
 
 -- Internal
 import Sound.SC3.Jiffy.Encode
