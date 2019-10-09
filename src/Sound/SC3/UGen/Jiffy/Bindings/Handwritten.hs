@@ -35,13 +35,15 @@ module Sound.SC3.UGen.Jiffy.Bindings.Handwritten
   , packFFTSpec
   , pmOsc
   , pvcollect
-  , unpackFFT
+  , rand0
+  , rand2
   , silent
   , soundIn
   , splay
   , tap
   , tChoose
   , tWChoose
+  , unpackFFT
   , wrapOut
 
     -- * Re-export
@@ -335,6 +337,14 @@ pvcollect c nframes f from to z =
       e = zipWith3 f ms ps is
       mps = uncurry packFFTSpec (unzip e)
   in  packFFT c nframes from to z mps
+
+-- | 'rand' with left edge set to zero.
+rand0 :: UGen -> UGen
+rand0 = rand 0
+
+-- | 'rand' with left edge set to negative /n/.
+rand2 :: UGen -> UGen
+rand2 n = rand (negate n) n
 
 -- | Output silence.
 silent :: Int -> UGen
