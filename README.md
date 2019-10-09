@@ -14,7 +14,7 @@ binding functions and SynthDef builder with resembling interface to
 efficient and scalable SynthDef graph compilation.
 
 
-## Example
+## Motivating example
 
 ```Haskell
 module Example01 where

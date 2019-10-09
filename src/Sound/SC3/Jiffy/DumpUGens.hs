@@ -84,7 +84,7 @@ ugen_to_graphdef' n u = graph_to_graphdef n (SC3UG.ugen_to_graph u)
 --
 -- -----------------------------------------------------------------------
 
--- | Array for cnstants.
+-- | Array for constants.
 type CA = UArray Int SC3.Sample
 
 -- | Array for UGen tuples.
