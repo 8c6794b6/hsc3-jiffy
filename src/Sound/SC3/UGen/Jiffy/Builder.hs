@@ -65,9 +65,9 @@ import Data.ByteString.Char8 (pack)
 
 -- hsc3
 import Sound.SC3
-  ( Binary(..), BinaryOp(..), Envelope(..), EqE(..), K_Type(..)
+  ( SC3_Binary_Op(..), BinaryOp(..), Envelope(..), EqE(..), K_Type(..)
   , OrdE(..),  Rate(..), RealFracE(..), Sample, Special(..)
-  , UGenId(..), Unary(..), UnaryOp(..), envelope_sc3_array )
+  , UGenId(..), SC3_Unary_Op(..), UnaryOp(..), envelope_sc3_array )
 import Sound.SC3.Common.Math (sc3_round_to)
 import Sound.SC3.Server.Graphdef (Graphdef(..))
 import Sound.SC3.UGen.Graph (U_Graph)
@@ -616,7 +616,7 @@ mkLocalBufUGen n_output uid_fn special name rate_fn input_ugens =
 
 -- | Make a unary operator UGen, with constant folding function applied
 -- to 'NConstant' input values.
-unary_op_with :: (Sample -> Sample) -> Unary -> UGen -> UGen
+unary_op_with :: (Sample -> Sample) -> SC3_Unary_Op -> UGen -> UGen
 unary_op_with fn op a =
   G (do let f inputs =
               case inputs of
@@ -638,7 +638,7 @@ unary_op_with fn op a =
         multiNew 1 f [input_mce_nid])
 {-# INLINEABLE unary_op_with #-}
 
-unary_op :: Unary -> UGen -> UGen
+unary_op :: SC3_Unary_Op -> UGen -> UGen
 unary_op op a = mkSimpleUGen 1 noId special name r_fn [a]
   where
     special = Special (fromEnum op)
@@ -649,7 +649,7 @@ unary_op op a = mkSimpleUGen 1 noId special name r_fn [a]
 -- | Make a binary operator UGen, with applying given function when both
 -- arguments were 'NConstant'.
 binary_op_with :: (Sample -> Sample -> Sample)
-               -> Binary
+               -> SC3_Binary_Op
                -> UGen -> UGen -> UGen
 binary_op_with fn op a b = G (mkbinop f a b)
   where
@@ -692,7 +692,7 @@ mkbinop f (G a) (G b) =
      multiNew 1 f [a',b']
 {-# INLINE mkbinop #-}
 
-binary_op :: Binary -> UGen -> UGen -> UGen
+binary_op :: SC3_Binary_Op -> UGen -> UGen -> UGen
 binary_op op a b = mkSimpleUGen 1 noId special name r_fn [a,b]
   where
     special = Special (fromEnum op)
@@ -762,7 +762,7 @@ binary_fdiv inputs =
     _ -> error "binary_fdiv: bad inputs"
 {-# INLINE binary_fdiv #-}
 
-registerCN :: Binary -> (NodeId -> NodeId -> OpArg)
+registerCN :: SC3_Binary_Op -> (NodeId -> NodeId -> OpArg)
            -> Sample -> NodeId -> GraphM s NodeId
 registerCN op oparg v0 nid1 = do
   nid0 <- hashconsC (G_Node_C v0)
@@ -772,7 +772,7 @@ registerCN op oparg v0 nid1 = do
   registerOp dag me (oparg nid0 nid1)
 {-# INLINE registerCN #-}
 
-registerNC :: Binary -> (NodeId -> NodeId -> OpArg)
+registerNC :: SC3_Binary_Op -> (NodeId -> NodeId -> OpArg)
            -> NodeId -> Sample -> GraphM s NodeId
 registerNC op oparg nid0 v1 = do
   nid1 <- hashconsC (G_Node_C v1)
@@ -782,7 +782,7 @@ registerNC op oparg nid0 v1 = do
   registerOp dag me (oparg nid0 nid1)
 {-# INLINE registerNC #-}
 
-registerNN :: Binary -> (NodeId -> NodeId -> OpArg)
+registerNN :: SC3_Binary_Op -> (NodeId -> NodeId -> OpArg)
            -> NodeId -> NodeId -> GraphM s NodeId
 registerNN op oparg nid0 nid1 = do
   dag <- ask
@@ -795,7 +795,7 @@ registerNN op oparg nid0 nid1 = do
 {-# INLINE registerNN #-}
 
 -- | Binary op, constant first argument, node ID second argument.
-binaryCN :: Binary -> Sample -> NodeId -> GraphM s NodeId
+binaryCN :: SC3_Binary_Op -> Sample -> NodeId -> GraphM s NodeId
 binaryCN op v0 nid1 = do
   nid0 <- hashconsC (G_Node_C v0)
   n1 <- ask >>= lookup_g_node nid1
@@ -803,7 +803,7 @@ binaryCN op v0 nid1 = do
 {-# INLINE binaryCN #-}
 
 -- | Binary op, node ID first argument, constant second argument.
-binaryNC :: Binary -> NodeId -> Sample -> GraphM s NodeId
+binaryNC :: SC3_Binary_Op -> NodeId -> Sample -> GraphM s NodeId
 binaryNC op nid0 v1 = do
   n0 <- ask >>= lookup_g_node nid0
   nid1 <- hashconsC (G_Node_C v1)
@@ -811,7 +811,7 @@ binaryNC op nid0 v1 = do
 {-# INLINE binaryNC #-}
 
 -- | Binary op, node ID first and second argument.
-binaryNN :: Binary -> NodeId -> NodeId -> GraphM s NodeId
+binaryNN :: SC3_Binary_Op -> NodeId -> NodeId -> GraphM s NodeId
 binaryNN op nid0 nid1 = do
   dag <- ask
   n0 <- lookup_g_node nid0 dag
@@ -837,7 +837,7 @@ mkNeg rate nid =
                       ,g_node_u_pure=True})
 {-# INLINE mkNeg #-}
 
-mkBinaryOp :: Binary -> Rate -> [NodeId] -> GraphM s NodeId
+mkBinaryOp :: SC3_Binary_Op -> Rate -> [NodeId] -> GraphM s NodeId
 mkBinaryOp op rate ins =
   hashconsU (G_Node_U {g_node_u_rate=rate
                       ,g_node_u_name="BinaryOpUGen"

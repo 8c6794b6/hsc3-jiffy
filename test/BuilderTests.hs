@@ -38,10 +38,10 @@ byNameAndSpecial test un =
 hasUGenNamed :: String -> U_Graph -> Bool
 hasUGenNamed n = hasUNode (byNameAndSpecial (\n' _ -> n' == n))
 
-hasBinaryOp :: Binary -> U_Graph -> Bool
+hasBinaryOp :: SC3_Binary_Op -> U_Graph -> Bool
 hasBinaryOp = hasOperator "BinaryOpUGen"
 
-hasUnaryOp :: Unary -> U_Graph -> Bool
+hasUnaryOp :: SC3_Unary_Op -> U_Graph -> Bool
 hasUnaryOp = hasOperator "UnaryOpUGen"
 
 hasOperator :: Enum a => String -> a -> U_Graph -> Bool

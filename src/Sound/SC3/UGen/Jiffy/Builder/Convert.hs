@@ -31,7 +31,8 @@ import Sound.OSC.Datum (ascii)
 
 -- hsc3
 import Sound.SC3
-  ( Binary(..), K_Type(..), Rate(..), Special(..), Unary(..) )
+  ( SC3_Binary_Op(..), K_Type(..), Rate(..), Special(..)
+  , SC3_Unary_Op(..) )
 import Sound.SC3.Server.Graphdef
   ( Graphdef(..), Control, Input(..), UGen )
 import Sound.SC3.UGen.Graph
@@ -470,7 +471,7 @@ is_mul_node :: G_Node -> Bool
 is_mul_node = is_binop_node Mul
 {-# INLINE is_mul_node #-}
 
-is_binop_node :: Binary -> G_Node -> Bool
+is_binop_node :: SC3_Binary_Op -> G_Node -> Bool
 is_binop_node op gn
   | G_Node_U {..} <- gn
   , Special n <- g_node_u_special
