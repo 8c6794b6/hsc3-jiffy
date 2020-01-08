@@ -3,7 +3,7 @@
 ## Introduction
 
 This package contains efficient and scalable SynthDef builder functions
-for `hsc3`.
+for [`hsc3`][hsc3].
 
 The `hsc3` package has flexible and easy to use functions for defining
 SynthDef graph for [SuperCollider][supercollider] synthesis engine.
@@ -202,5 +202,6 @@ made from multichannel frequency inputs, appear earlier than
 multiplication operators.
 
 
+[hsc3]: http://rohandrape.net/?t=hsc3
 [supercollider]: https://supercollider.github.io
 [synthdef_spec]: http://doc.sccode.org/Reference/Synth-Definition-File-Format.html
