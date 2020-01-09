@@ -19,8 +19,8 @@ efficient and scalable SynthDef graph compilation.
 ```Haskell
 module Example01 where
 
+import Sound.SC3.Jiffy
 import qualified Sound.SC3 as S
-import qualified Sound.SC3.Jiffy
 
 g1 :: Int -> S.UGen
 g1 n =
