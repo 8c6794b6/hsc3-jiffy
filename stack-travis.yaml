@@ -1,0 +1,9 @@
+# stack configuration file for Travis CI
+
+resolver: lts-14.20
+
+packages:
+  - .
+  - /home/travis/hosc
+  - /home/travis/hsc3
+  - /home/travis/hsc3-db

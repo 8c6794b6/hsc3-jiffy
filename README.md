@@ -1,5 +1,7 @@
 # hsc3-jiffy
 
+[![Build status][build-status]][travis]
+
 ## Introduction
 
 This package contains efficient and scalable SynthDef builder functions
@@ -201,6 +203,9 @@ In the graph made with `hsc3-jiffy`, the two `SinOsc` UGens, which were
 made from multichannel frequency inputs, appear earlier than
 multiplication operators.
 
+
+[travis]: https://travis-ci.org/8c6794b6/hsc3-jiffy
+[build-status]: https://travis-ci.org/8c6794b6/hsc3-jiffy.svg?branch=master
 
 [hsc3]: http://rohandrape.net/?t=hsc3
 [supercollider]: https://supercollider.github.io

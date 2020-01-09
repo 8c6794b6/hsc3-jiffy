@@ -1,0 +1,31 @@
+language: generic
+
+cache:
+  directories:
+    - $HOME/.stack
+    - $HOME/.cache
+
+addons:
+  apt:
+    packages:
+      - libgmp-dev
+      - darcs
+
+before_install:
+  # Prepare stack executable
+  - mkdir -p ~/.local/bin
+  - export PATH=$HOME/.local/bin:$PATH
+  - travis_retry curl -L https://get.haskellstack.org/stable/linux-x86_64.tar.gz | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
+
+  # Clone hosc and hsc3 git repositories
+  - git clone --depth=1 https://github.com/rd--/hosc $HOME/hosc
+  - git clone --depth=1 https://github.com/rd--/hsc3 $HOME/hsc3
+
+  # Clone hsc3-db darcs repository
+  - darcs get --lazy http://rohandrape.net/sw/hsc3-db $HOME/hsc3-db
+
+install:
+  - stack --stack-yaml=stack-travis.yaml --no-terminal --install-ghc test --only-dependencies
+
+script:
+  - stack --stack-yaml=stack-travis.yaml --no-terminal build --fast --test --coverage hsc3-jiffy
