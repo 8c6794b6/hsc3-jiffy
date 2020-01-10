@@ -1,6 +1,4 @@
-# hsc3-jiffy
-
-[![Build status][build-status]][travis]
+# hsc3-jiffy [![Build status][build-status]][travis] [![Hackage badge][hackage-badge]][hackage]
 
 ## Introduction
 
@@ -206,6 +204,8 @@ multiplication operators.
 
 [travis]: https://travis-ci.org/8c6794b6/hsc3-jiffy
 [build-status]: https://travis-ci.org/8c6794b6/hsc3-jiffy.svg?branch=master
+[hackage]: https://hackage.haskell.org/package/hsc3-jiffy
+[hackage-badge]: https://img.shields.io/hackage/v/hsc3-jiffy.svg
 
 [hsc3]: http://rohandrape.net/?t=hsc3
 [supercollider]: https://supercollider.github.io

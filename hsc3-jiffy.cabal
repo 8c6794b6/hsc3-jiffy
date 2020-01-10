@@ -8,7 +8,7 @@ license:             BSD3
 license-file:        LICENSE
 author:              8c6794b6
 maintainer:          8c6794b6@gmail.com
-copyright:           (c) 2019, 8c6794b6
+copyright:           (c) 2019-2020 8c6794b6
 category:            Sound
 build-type:          Simple
 extra-source-files:  README.md
