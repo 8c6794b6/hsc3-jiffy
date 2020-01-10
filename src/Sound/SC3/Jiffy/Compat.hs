@@ -40,9 +40,8 @@ import Sound.OSC (Message, sendMessage)
 -- hsc3
 import Sound.SC3
   ( DoneAction(..), Envelope_Curve(..), Loop(..), Rate(..)
-  , envLinen, envASR, d_recv_bytes, s_new)
+  , envLinen, envASR )
 import Sound.SC3.Server.Command.Generic (withCM)
-import Sound.SC3.Server.Transport.Monad (Audible(..))
 import Sound.SC3.UGen.Graph (U_Graph(..), U_Node(..), ug_stat_ln)
 import qualified Sound.SC3.Server.Graphdef as Graphdef
 
